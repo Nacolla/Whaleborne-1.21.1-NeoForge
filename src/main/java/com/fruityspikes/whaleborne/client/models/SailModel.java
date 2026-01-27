@@ -3,6 +3,7 @@ package com.fruityspikes.whaleborne.client.models;
 import com.fruityspikes.whaleborne.server.entities.SailEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
@@ -11,6 +12,7 @@ import net.minecraft.client.model.geom.builders.*;
 public class SailModel<T extends SailEntity> extends EntityModel<T> {
     public final ModelPart bone;
     public SailModel(ModelPart root) {
+        super(RenderType::entityCutoutNoCull);
         this.bone = root.getChild("bone");
     }
     public static LayerDefinition createBodyLayer() {
@@ -29,7 +31,7 @@ public class SailModel<T extends SailEntity> extends EntityModel<T> {
     }
 
     @Override
-    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int i, int i1, float v, float v1, float v2, float v3) {
-        bone.render(poseStack, vertexConsumer, i, i1, v, v1, v2, v3);
+    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, int color) {
+        bone.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
     }
 }

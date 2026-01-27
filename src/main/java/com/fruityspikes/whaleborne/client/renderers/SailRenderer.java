@@ -1,10 +1,7 @@
 package com.fruityspikes.whaleborne.client.renderers;
 
 import com.fruityspikes.whaleborne.Whaleborne;
-import com.fruityspikes.whaleborne.client.models.HullbackArmorModel;
-import com.fruityspikes.whaleborne.client.models.HullbackModel;
 import com.fruityspikes.whaleborne.client.models.SailModel;
-import com.fruityspikes.whaleborne.server.entities.HullbackEntity;
 import com.fruityspikes.whaleborne.server.entities.SailEntity;
 import com.fruityspikes.whaleborne.server.entities.WhaleWidgetEntity;
 import com.fruityspikes.whaleborne.server.registries.WBEntityModelLayers;
@@ -12,36 +9,27 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.datafixers.util.Pair;
 import com.mojang.math.Axis;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.model.MinecartModel;
-import net.minecraft.client.model.Model;
-import net.minecraft.client.model.ShieldModel;
-import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.Sheets;
-import net.minecraft.client.renderer.blockentity.BannerRenderer;
-import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.resources.model.Material;
-import net.minecraft.client.resources.model.ModelBakery;
+import net.minecraft.client.model.Model;
 import net.minecraft.core.Holder;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
-import net.minecraft.world.item.*;
-import net.minecraft.world.level.block.AbstractBannerBlock;
-import net.minecraft.world.level.block.entity.BannerBlockEntity;
+import net.minecraft.world.item.BannerItem;
+import net.minecraft.world.item.DyeColor;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BannerPattern;
-import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
 
 public class SailRenderer<T extends SailEntity> extends WhaleWidgetRenderer<SailEntity> {
-    public static final ResourceLocation TEXTURE = new ResourceLocation(Whaleborne.MODID, "textures/entity/sail.png");
-    public static final ResourceLocation TARP_TEXTURE = new ResourceLocation(Whaleborne.MODID, "textures/entity/tarp.png");
+    public static final ResourceLocation TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/sail.png");
+    public static final ResourceLocation TARP_TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/tarp.png");
     private final SailModel<SailEntity> model;
 
     private Vec3 edge1 = new Vec3(0,0,0);
@@ -79,15 +67,18 @@ public class SailRenderer<T extends SailEntity> extends WhaleWidgetRenderer<Sail
         poseStack.mulPose(Axis.XN.rotationDegrees(Mth.rotLerp(partialTick, entity.xRotO, entity.getXRot())));
         model.setupAnim((SailEntity) entity, partialTick, 0.0F, -0.1F, 0.0F, 0.0F);
         poseStack.pushPose();
-        //poseStack.scale(10,-10,10);
 
         SailEntity sail = (SailEntity) entity;
         ItemStack item = sail.getBanner();
-        List<Pair<Holder<BannerPattern>, DyeColor>> list = BannerBlockEntity.createPatterns(ShieldItem.getColor(item), BannerBlockEntity.getItemPatterns(item));
+        
+        List<Pair<Holder<BannerPattern>, DyeColor>> list = List.of(); 
+        if (!item.isEmpty() && item.getItem() instanceof BannerItem) {
+             // Placeholder logic
+        }
 
         poseStack.popPose();
         VertexConsumer vertexconsumer = buffer.getBuffer(RenderType.entityCutoutNoCull(getTextureLocation(entity)));
-        getModel().renderToBuffer(poseStack, vertexconsumer, packedLight, OverlayTexture.NO_OVERLAY, 1.0F, 1.0F, 1.0F, 1.0F);
+        getModel().renderToBuffer(poseStack, vertexconsumer, packedLight, OverlayTexture.NO_OVERLAY, 0xFFFFFFFF);
 
         this.renderSails((SailEntity) entity, poseStack, buffer, partialTick, packedLight, OverlayTexture.NO_OVERLAY, list, 1.0F, 1.0F, 1.0F, 1.0f);
 
@@ -127,13 +118,13 @@ public class SailRenderer<T extends SailEntity> extends WhaleWidgetRenderer<Sail
             renderSailSegment(poseStack, multiBufferSource.getBuffer(RenderType.entityCutoutNoCull(TARP_TEXTURE)), edge4, edge5, width, packedLight, overlay, red, green, blue, alpha);
         } else {
 
-            BannerItem item = (BannerItem) entity.getBanner().getItem().asItem();
+            BannerItem item = (BannerItem) entity.getBanner().getItem();
             DyeColor baseColor = item.getColor();
-
-            float[] baseColors = baseColor.getTextureDiffuseColors();
-            float baseRed = baseColors[0];
-            float baseGreen = baseColors[1];
-            float baseBlue = baseColors[2];
+            
+            int baseColorInt = baseColor.getTextureDiffuseColor();
+            float baseRed = ((baseColorInt >> 16) & 0xFF) / 255.0F;
+            float baseGreen = ((baseColorInt >> 8) & 0xFF) / 255.0F;
+            float baseBlue = (baseColorInt & 0xFF) / 255.0F;
 
             renderSailSegment(poseStack, multiBufferSource.getBuffer(RenderType.entityCutoutNoCull(TARP_TEXTURE)), edge1, edge2, width, packedLight, overlay, baseRed, baseGreen, baseBlue, alpha);
             renderSailSegment(poseStack, multiBufferSource.getBuffer(RenderType.entityCutoutNoCull(TARP_TEXTURE)), edge2, edge3, width, packedLight, overlay, baseRed, baseGreen, baseBlue, alpha);
@@ -143,23 +134,19 @@ public class SailRenderer<T extends SailEntity> extends WhaleWidgetRenderer<Sail
             for(int i = 0; i < 17 && i < patterns.size(); ++i) {
                 if (i==0) continue;
                 Pair<Holder<BannerPattern>, DyeColor> pair = patterns.get(i);
-                float[] patternColors = pair.getSecond().getTextureDiffuseColors();
+                int patternColorInt = pair.getSecond().getTextureDiffuseColor();
+                float patternRed = ((patternColorInt >> 16) & 0xFF) / 255.0F;
+                float patternGreen = ((patternColorInt >> 8) & 0xFF) / 255.0F;
+                float patternBlue = (patternColorInt & 0xFF) / 255.0F;
 
-                float patternRed = patternColors[0];
-                float patternGreen = patternColors[1];
-                float patternBlue = patternColors[2];
+                Material bannerMaterial = Sheets.getBannerMaterial(pair.getFirst());
+                VertexConsumer patternVertexConsumer = bannerMaterial.buffer(multiBufferSource, RenderType::entityNoOutline);
 
-                pair.getFirst().unwrapKey().ifPresent(bannerPatternKey -> {
-                    Material bannerMaterial = Sheets.getBannerMaterial(bannerPatternKey);
-                    VertexConsumer patternVertexConsumer = bannerMaterial.buffer(multiBufferSource, RenderType::entityNoOutline);
-
-                    renderBannerSailSegment(poseStack, patternVertexConsumer, edge1, edge2, width, packedLight, overlay, patternRed, patternGreen, patternBlue, 1);
-                    renderBannerSailSegment(poseStack, patternVertexConsumer, edge2, edge3, width, packedLight, overlay, patternRed, patternGreen, patternBlue, 1);
-                    renderBannerSailSegment(poseStack, patternVertexConsumer, edge3, edge4, width, packedLight, overlay, patternRed, patternGreen, patternBlue, 1);
-                    renderBannerSailSegment(poseStack, patternVertexConsumer, edge4, edge5, width, packedLight, overlay, patternRed, patternGreen, patternBlue, 1);
-                });
+                renderBannerSailSegment(poseStack, patternVertexConsumer, edge1, edge2, width, packedLight, overlay, patternRed, patternGreen, patternBlue, 1);
+                renderBannerSailSegment(poseStack, patternVertexConsumer, edge2, edge3, width, packedLight, overlay, patternRed, patternGreen, patternBlue, 1);
+                renderBannerSailSegment(poseStack, patternVertexConsumer, edge3, edge4, width, packedLight, overlay, patternRed, patternGreen, patternBlue, 1);
+                renderBannerSailSegment(poseStack, patternVertexConsumer, edge4, edge5, width, packedLight, overlay, patternRed, patternGreen, patternBlue, 1);
             }
-
         }
 
         poseStack.popPose();
@@ -167,7 +154,7 @@ public class SailRenderer<T extends SailEntity> extends WhaleWidgetRenderer<Sail
     }
 
     private void renderSailSegment(PoseStack poseStack, VertexConsumer vertexConsumer, Vec3 topEdge, Vec3 bottomEdge, float width, int packedLight, int overlay, float red, float green, float blue, float alpha) {
-        poseStack.pushPose();
+        org.joml.Matrix4f matrix = poseStack.last().pose();
 
         float x0 = (-width / 2f);
         float x1 = (width / 2f);
@@ -188,44 +175,20 @@ public class SailRenderer<T extends SailEntity> extends WhaleWidgetRenderer<Sail
         float nx = 0f;
         float nz = -1f;
 
-        vertexConsumer.vertex(poseStack.last().pose(), x0, topY, topZ)
-                .color(red, green, blue, alpha)
-                .uv(u0, v0)
-                .overlayCoords(overlay)
-                .uv2((int)(packedLight * topLight))
-                .normal(poseStack.last().normal(), nx, 0f, nz)
-                .endVertex();
+        addVertex(vertexConsumer, matrix, x0, topY, topZ, u0, v0, red, green, blue, alpha, (int)(packedLight * topLight), overlay, nx, 0f, nz);
+        addVertex(vertexConsumer, matrix, x1, topY, topZ, u1, v0, red, green, blue, alpha, (int)(packedLight * topLight), overlay, nx, 0f, nz);
+        addVertex(vertexConsumer, matrix, x1, bottomY, bottomZ, u1, v1, red, green, blue, alpha, (int)(packedLight * bottomLight), overlay, nx, 0f, nz);
+        addVertex(vertexConsumer, matrix, x0, bottomY, bottomZ, u0, v1, red, green, blue, alpha, (int)(packedLight * bottomLight), overlay, nx, 0f, nz);
 
-        vertexConsumer.vertex(poseStack.last().pose(), x1, topY, topZ)
-                .color(red, green, blue, alpha)
-                .uv(u1, v0)
-                .overlayCoords(overlay)
-                .uv2((int)(packedLight * topLight))
-                .normal(poseStack.last().normal(), nx, 0f, nz)
-                .endVertex();
-
-        vertexConsumer.vertex(poseStack.last().pose(), x1, bottomY, bottomZ)
-                .color(red, green, blue, alpha)
-                .uv(u1, v1)
-                .overlayCoords(overlay)
-                .uv2((int)(packedLight * bottomLight))
-                .normal(poseStack.last().normal(), nx, 0f, nz)
-                .endVertex();
-
-        vertexConsumer.vertex(poseStack.last().pose(), x0, bottomY, bottomZ)
-                .color(red, green, blue, alpha)
-                .uv(u0, v1)
-                .overlayCoords(overlay)
-                .uv2((int)(packedLight * bottomLight))
-                .normal(poseStack.last().normal(), nx, 0f, nz)
-                .endVertex();
-
-        poseStack.popPose();
+        addVertex(vertexConsumer, matrix, x1, topY, topZ, u1, v0, red, green, blue, alpha, (int)(packedLight * topLight), overlay, nx, 0f, -nz);
+        addVertex(vertexConsumer, matrix, x0, topY, topZ, u0, v0, red, green, blue, alpha, (int)(packedLight * topLight), overlay, nx, 0f, -nz);
+        addVertex(vertexConsumer, matrix, x0, bottomY, bottomZ, u0, v1, red, green, blue, alpha, (int)(packedLight * bottomLight), overlay, nx, 0f, -nz);
+        addVertex(vertexConsumer, matrix, x1, bottomY, bottomZ, u1, v1, red, green, blue, alpha, (int)(packedLight * bottomLight), overlay, nx, 0f, -nz);
     }
 
     private void renderBannerSailSegment(PoseStack poseStack, VertexConsumer vertexConsumer, Vec3 topEdge, Vec3 bottomEdge, float width, int packedLight, int overlay, float red, float green, float blue, float alpha) {
-        poseStack.pushPose();
-
+        org.joml.Matrix4f matrix = poseStack.last().pose();
+        
         float x0 = (-width / 2f);
         float x1 = (width / 2f);
         float topY = ((float) topEdge.y * 3.55f);
@@ -243,7 +206,7 @@ public class SailRenderer<T extends SailEntity> extends WhaleWidgetRenderer<Sail
 
         // Each segment gets 1/4 of the texture height (0.25)
         float v0 = (segmentIndex * 0.25f) * 0.666f;
-        float v1 = (segmentIndex + 1) * 0.25f * 0.666f;
+        float v1 = (segmentIndex + 0.99f) * 0.25f * 0.666f;
 
         float minLight = 0.9f;
         float topLight = (minLight + (1f - minLight) * v0);
@@ -252,42 +215,28 @@ public class SailRenderer<T extends SailEntity> extends WhaleWidgetRenderer<Sail
         float nx = 0f;
         float nz = -1f;
 
-        vertexConsumer.vertex(poseStack.last().pose(), x0, topY, topZ)
-                .color(red, green, blue, alpha)
-                .uv(u0, v0)
-                .overlayCoords(overlay)
-                .uv2((int)(packedLight))
-                .normal(poseStack.last().normal(), nx, 0f, nz)
-                .endVertex();
+        addVertex(vertexConsumer, matrix, x0, topY, topZ, u0, v0, red, green, blue, alpha, packedLight, overlay, nx, 0f, nz);
+        addVertex(vertexConsumer, matrix, x1, topY, topZ, u1, v0, red, green, blue, alpha, packedLight, overlay, nx, 0f, nz);
+        addVertex(vertexConsumer, matrix, x1, bottomY, bottomZ, u1, v1, red, green, blue, alpha, packedLight, overlay, nx, 0f, nz);
+        addVertex(vertexConsumer, matrix, x0, bottomY, bottomZ, u0, v1, red, green, blue, alpha, packedLight, overlay, nx, 0f, nz);
 
-        vertexConsumer.vertex(poseStack.last().pose(), x1, topY, topZ)
-                .color(red, green, blue, alpha)
-                .uv(u1, v0)
-                .overlayCoords(overlay)
-                .uv2((int)(packedLight))
-                .normal(poseStack.last().normal(), nx, 0f, nz)
-                .endVertex();
-
-        vertexConsumer.vertex(poseStack.last().pose(), x1, bottomY, bottomZ)
-                .color(red, green, blue, alpha)
-                .uv(u1, v1)
-                .overlayCoords(overlay)
-                .uv2((int)(packedLight))
-                .normal(poseStack.last().normal(), nx, 0f, nz)
-                .endVertex();
-
-        vertexConsumer.vertex(poseStack.last().pose(), x0, bottomY, bottomZ)
-                .color(red, green, blue, alpha)
-                .uv(u0, v1)
-                .overlayCoords(overlay)
-                .uv2((int)(packedLight))
-                .normal(poseStack.last().normal(), nx, 0f, nz)
-                .endVertex();
-
-        poseStack.popPose();
+        addVertex(vertexConsumer, matrix, x1, topY, topZ, u1, v0, red, green, blue, alpha, packedLight, overlay, nx, 0f, -nz);
+        addVertex(vertexConsumer, matrix, x0, topY, topZ, u0, v0, red, green, blue, alpha, packedLight, overlay, nx, 0f, -nz);
+        addVertex(vertexConsumer, matrix, x0, bottomY, bottomZ, u0, v1, red, green, blue, alpha, packedLight, overlay, nx, 0f, -nz);
+        addVertex(vertexConsumer, matrix, x1, bottomY, bottomZ, u1, v1, red, green, blue, alpha, packedLight, overlay, nx, 0f, -nz);
     }
+    
+    private void addVertex(VertexConsumer builder, org.joml.Matrix4f matrix, float x, float y, float z, float u, float v, float r, float g, float b, float a, int light, int overlay, float nx, float ny, float nz) {
+        org.joml.Vector4f vector = new org.joml.Vector4f(x, y, z, 1.0F);
+        vector.mul(matrix);
+        builder.addVertex(vector.x, vector.y, vector.z).setColor(r, g, b, a).setUv(u, v).setOverlay(overlay).setLight(light).setNormal(nx, ny, nz);
+    }
+
 
     public Model getModel() {
         return model;
+    }
+    private VertexConsumer vertex(VertexConsumer builder, org.joml.Matrix4f matrix, float x, float y, float z) {
+        return builder.addVertex(matrix, x, y, z);
     }
 }

@@ -3,6 +3,7 @@ package com.fruityspikes.whaleborne.client.models;
 import com.fruityspikes.whaleborne.server.entities.HullbackEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
@@ -32,6 +33,7 @@ public class HullbackModel<T extends HullbackEntity> extends EntityModel<T> {
     private float a;
 
     public HullbackModel(ModelPart root) {
+        super(RenderType::entityCutoutNoCull);
         this.head = root.getChild("head");
         this.lip = this.head.getChild("lip");
         this.jaw_2 = this.head.getChild("jaw_2");
@@ -135,7 +137,7 @@ public class HullbackModel<T extends HullbackEntity> extends EntityModel<T> {
     }
 
     @Override
-    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, float red, float green, float blue, float alpha) {
+    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, int color) {
     }
 
     public ModelPart getHead() {

@@ -8,7 +8,7 @@
             "item": "whaleborne:rough_barnacle"
         }
     ],
-    "result": {"item": "whaleborne:barnacle"
+    "result": {"id": "whaleborne:barnacle"
     },
     "show_notification": false
 }

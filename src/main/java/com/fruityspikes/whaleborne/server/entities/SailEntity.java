@@ -23,6 +23,7 @@ import net.minecraft.world.level.Level;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.IntStream;
+import net.minecraft.world.phys.Vec3;
 
 public class SailEntity extends WhaleWidgetEntity{
     private float SPEED_MODIFIER = 1.0F;
@@ -35,9 +36,10 @@ public class SailEntity extends WhaleWidgetEntity{
     public float getSpeedModifier() {
         return SPEED_MODIFIER;
     }
-    protected void defineSynchedData() {
-        super.defineSynchedData();
-        this.entityData.define(DATA_BANNER, ItemStack.EMPTY);
+    @Override
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        super.defineSynchedData(builder);
+        builder.define(DATA_BANNER, ItemStack.EMPTY);
     }
 
     @Override
@@ -87,7 +89,7 @@ public class SailEntity extends WhaleWidgetEntity{
 
         if (!banner.isEmpty()) {
             CompoundTag tag = new CompoundTag();
-            banner.save(tag);
+            banner.save(this.registryAccess(), tag);
             compound.put("Banner", tag);
         }
     }
@@ -95,9 +97,14 @@ public class SailEntity extends WhaleWidgetEntity{
     public void readAdditionalSaveData(CompoundTag compound) {
         if (compound.contains("Banner")) {
             CompoundTag tag = compound.getCompound("Banner");
-            ItemStack banner = ItemStack.of(tag);
+            ItemStack banner = ItemStack.parse(this.registryAccess(), tag).orElse(ItemStack.EMPTY);
             this.entityData.set(DATA_BANNER, banner);
         }
+    }
+
+    @Override
+    protected Vec3 getPassengerAttachmentPoint(Entity passenger, net.minecraft.world.entity.EntityDimensions dimensions, float scale) {
+        return super.getPassengerAttachmentPoint(passenger, dimensions, scale).add(0, this.getBbHeight() - 1.0f, 0);
     }
 
     @Override

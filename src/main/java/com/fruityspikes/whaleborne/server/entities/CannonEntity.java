@@ -1,8 +1,7 @@
 package com.fruityspikes.whaleborne.server.entities;
 
 import com.fruityspikes.whaleborne.client.menus.CannonMenu;
-import com.fruityspikes.whaleborne.network.CannonFirePacket;
-import com.fruityspikes.whaleborne.network.WhaleborneNetwork;
+import com.fruityspikes.whaleborne.network.CannonFirePayload;
 import com.fruityspikes.whaleborne.server.registries.WBItemRegistry;
 import com.fruityspikes.whaleborne.server.registries.WBParticleRegistry;
 import com.fruityspikes.whaleborne.server.registries.WBSoundRegistry;
@@ -33,11 +32,12 @@ import net.minecraft.world.item.*;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.DispenserBlock;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.common.util.LazyOptional;
-import net.minecraftforge.items.IItemHandler;
-import net.minecraftforge.items.ItemStackHandler;
-import net.minecraftforge.items.wrapper.InvWrapper;
-import net.minecraftforge.network.NetworkHooks;
+import net.neoforged.neoforge.common.util.Lazy;
+import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.ItemStackHandler;
+import net.neoforged.neoforge.items.wrapper.InvWrapper;
+import net.neoforged.neoforge.network.PacketDistributor;
+import org.joml.Matrix2dc;
 import org.joml.Matrix2dc;
 
 import java.util.HashMap;
@@ -46,7 +46,7 @@ import java.util.UUID;
 
 public class CannonEntity extends RideableWhaleWidgetEntity implements ContainerListener, HasCustomInventoryScreen, PlayerRideableJumping {
     protected float cannonXRot;
-    private LazyOptional<IItemHandler> itemHandler = LazyOptional.empty();
+    private IItemHandler itemHandler;
     public SimpleContainer inventory = new SimpleContainer(2) {
         @Override
         public void setChanged() {
@@ -58,7 +58,7 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
         super(entityType, level, WBItemRegistry.CANNON.get());
         cannonXRot = this.getXRot();
         this.inventory.addListener(this);
-        this.itemHandler = LazyOptional.of(() -> new InvWrapper(this.inventory));
+        this.itemHandler = new InvWrapper(this.inventory);
     }
 
     @Override
@@ -117,7 +117,7 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
             inventory.setItem(slot, stack.split(1));
             playSound(SoundEvents.ITEM_FRAME_ADD_ITEM);
             return InteractionResult.SUCCESS;
-        } else if (ItemStack.isSameItemSameTags(existing, stack) && existing.getCount() < existing.getMaxStackSize()) {
+        } else if (ItemStack.isSameItemSameComponents(existing, stack) && existing.getCount() < existing.getMaxStackSize()) {
             int toAdd = Math.min(stack.getCount(), existing.getMaxStackSize() - existing.getCount());
             existing.grow(toAdd);
             stack.shrink(toAdd);
@@ -140,7 +140,7 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
     @Override
     public void onPlayerJump(int power) {
         if (this.level().isClientSide) {
-            WhaleborneNetwork.INSTANCE.sendToServer(new CannonFirePacket(this.getId(), power));
+            PacketDistributor.sendToServer(new CannonFirePayload(this.getId(), power));
         }
     }
 
@@ -247,7 +247,7 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
             }
             else if(ammo.is(Items.ARROW)){
                 projectile = new Arrow(
-                        this.level(), (LivingEntity) this.getVehicle());
+                        this.level(), (LivingEntity) this.getVehicle(), new ItemStack(Items.ARROW), new ItemStack(Items.BOW));
                 level().playSound(null, this.getX(), this.getY(), this.getZ(),
                         SoundEvents.CROSSBOW_SHOOT, SoundSource.BLOCKS, 1.0F,
                         (float) power / 50);
@@ -294,7 +294,7 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
 
     private void openCannonMenu(Player player) {
         if (!level().isClientSide && player instanceof ServerPlayer serverPlayer) {
-            NetworkHooks.openScreen(serverPlayer, new MenuProvider() {
+            serverPlayer.openMenu(new MenuProvider() {
                 @Override
                 public Component getDisplayName() {
                     return Component.translatable("menu.title.whaleborne.cannon");
@@ -309,8 +309,8 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
     }
 
     @Override
-    public double getPassengersRidingOffset() {
-        return this.getBbHeight();
+    protected Vec3 getPassengerAttachmentPoint(Entity passenger, EntityDimensions dimensions, float scale) {
+        return super.getPassengerAttachmentPoint(passenger, dimensions, scale).add(0, this.getBbHeight() - 1.25f, 0);
     }
 
     @Override
@@ -362,7 +362,7 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
             if (!stack.isEmpty()) {
                 CompoundTag itemTag = new CompoundTag();
                 itemTag.putByte("Slot", (byte)i);
-                stack.save(itemTag);
+                stack.save(this.registryAccess(), itemTag);
                 items.add(itemTag);
             }
         }
@@ -378,7 +378,7 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
             CompoundTag itemTag = items.getCompound(i);
             int slot = itemTag.getByte("Slot") & 255;
             if (slot >= 0 && slot < this.inventory.getContainerSize()) {
-                this.inventory.setItem(slot, ItemStack.of(itemTag));
+                this.inventory.setItem(slot, ItemStack.parse(this.registryAccess(), itemTag).orElse(ItemStack.EMPTY));
             }
         }
     }

@@ -4,6 +4,6 @@
   "placement_chance": 0.002,
   "removable_with": ["pickaxe"],
   "drop": "minecraft:tube_coral",
-  "sound_on_growth": "minecraft:block.coral_block.place",
-  "sound_on_remove": "minecraft:block.coral_block.break"
+  "sound_on_growth": "minecraft:block.wet_grass.place",
+  "sound_on_remove": "minecraft:block.wet_grass.break"
 }

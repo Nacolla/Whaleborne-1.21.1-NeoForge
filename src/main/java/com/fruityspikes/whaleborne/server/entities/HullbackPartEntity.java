@@ -1,5 +1,10 @@
 package com.fruityspikes.whaleborne.server.entities;
 
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityDimensions;
+import net.minecraft.world.entity.Pose;
 import com.fruityspikes.whaleborne.server.items.WhaleEquipment;
 import com.fruityspikes.whaleborne.server.registries.WBEntityRegistry;
 import com.fruityspikes.whaleborne.server.registries.WBTagRegistry;
@@ -25,13 +30,13 @@ import net.minecraft.world.item.*;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.common.ForgeSpawnEggItem;
-import net.minecraftforge.entity.PartEntity;
+import net.neoforged.neoforge.common.DeferredSpawnEggItem;
 
 import javax.annotation.Nullable;
 
+import net.neoforged.neoforge.entity.PartEntity;
+
 public class HullbackPartEntity extends PartEntity<HullbackEntity> {
-    public final HullbackEntity parent;
     public final String name;
     private final EntityDimensions size;
 
@@ -39,8 +44,34 @@ public class HullbackPartEntity extends PartEntity<HullbackEntity> {
         super(parent);
         this.size = EntityDimensions.scalable(width, height);
         this.refreshDimensions();
-        this.parent = parent;
         this.name = name;
+    }
+
+    @Override
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+    }
+
+    @Override
+    protected void readAdditionalSaveData(CompoundTag compound) {
+    }
+
+    @Override
+    protected void addAdditionalSaveData(CompoundTag compound) {
+    }
+
+    @Override
+    public boolean isPickable() {
+        return true;
+    }
+
+    @Override
+    public boolean hurt(DamageSource source, float amount) {
+        return this.getParent().hurt(source, amount);
+    }
+
+    @Override
+    public EntityDimensions getDimensions(Pose pose) {
+        return this.size;
     }
 
     public void tick() {
@@ -53,22 +84,22 @@ public class HullbackPartEntity extends PartEntity<HullbackEntity> {
 
     @Override
     public InteractionResult interactAt(Player player, Vec3 vec, InteractionHand hand) {
-        boolean topClicked = vec.y > size.height * 0.6f;
+        boolean topClicked = vec.y > size.height() * 0.6f;
         ItemStack heldItem = player.getItemInHand(hand);
 
         if (heldItem.getItem() instanceof DebugStickItem) {
-            return parent.interactDebug(player, hand);
+            return getParent().interactDebug(player, hand);
         }
 
         if (heldItem.getItem() instanceof SaddleItem || heldItem.is(WBTagRegistry.HULLBACK_EQUIPPABLE)) {
-            return parent.interactArmor(player, hand, this, topClicked);
+            return getParent().interactArmor(player, hand, this, topClicked);
         }
 
         if (heldItem.isEmpty()){
             if(this.name == "tail")
-                return parent.interact(player, hand);
+                return getParent().interact(player, hand);
             if(this.name == "fluke")
-                return parent.interactRide(player, hand,6, null);
+                return getParent().interactRide(player, hand,6, null);
             if(topClicked){
                 if(this.name == "body"){
                     Vec3 localClick = new Vec3(vec.x, 0, vec.z);
@@ -79,18 +110,18 @@ public class HullbackPartEntity extends PartEntity<HullbackEntity> {
                     int quadrant = (int)(angle / (Math.PI/2)) % 4;
 
                     switch(quadrant) {
-                        case 0: return parent.interactRide(player, hand, 5, null);
-                        case 1: return parent.interactRide(player, hand, 4, null);
-                        case 2: return parent.interactRide(player, hand, 2, null);
-                        default: return parent.interactRide(player, hand, 3, null);
+                        case 0: return getParent().interactRide(player, hand, 5, null);
+                        case 1: return getParent().interactRide(player, hand, 4, null);
+                        case 2: return getParent().interactRide(player, hand, 2, null);
+                        default: return getParent().interactRide(player, hand, 3, null);
                     }
                 }
                 if(this.name == "nose")
-                    return parent.interactRide(player, hand,0, null);
+                    return getParent().interactRide(player, hand,0, null);
                 if(this.name == "head")
-                    return parent.interactRide(player, hand,1, null);
+                    return getParent().interactRide(player, hand,1, null);
             }
-            return parent.interact(player, hand);
+            return getParent().interact(player, hand);
         }
 
 
@@ -98,15 +129,15 @@ public class HullbackPartEntity extends PartEntity<HullbackEntity> {
             EntityType<?> entity;
 
             if(heldItem.getItem() instanceof SpawnEggItem spawnEggItem)
-               entity = spawnEggItem.getType(null);
+               entity = spawnEggItem.getType(heldItem);
             else if(heldItem.getItem() instanceof WhaleEquipment whaleEquipment)
                 entity = whaleEquipment.getEntity();
             else entity = EntityType.EXPERIENCE_ORB;
 
             if(this.name == "tail")
-                return parent.interact(player, hand);
+                return getParent().interact(player, hand);
             if(this.name == "fluke")
-                return parent.interactRide(player, hand,6, entity);
+                return getParent().interactRide(player, hand,6, entity);
             if(topClicked){
                 if(this.name == "body"){
                     Vec3 localClick = new Vec3(vec.x, 0, vec.z);
@@ -117,57 +148,23 @@ public class HullbackPartEntity extends PartEntity<HullbackEntity> {
                     int quadrant = (int)(angle / (Math.PI/2)) % 4;
 
                     switch(quadrant) {
-                        case 0: return parent.interactRide(player, hand, 5, entity);
-                        case 1: return parent.interactRide(player, hand, 4, entity);
-                        case 2: return parent.interactRide(player, hand, 2, entity);
-                        default: return parent.interactRide(player, hand, 3, entity);
+                        case 0: return getParent().interactRide(player, hand, 5, entity);
+                        case 1: return getParent().interactRide(player, hand, 4, entity);
+                        case 2: return getParent().interactRide(player, hand, 2, entity);
+                        default: return getParent().interactRide(player, hand, 3, entity);
                     }
                 }
                 if(this.name == "nose")
-                    return parent.interactRide(player, hand,0, entity);
+                    return getParent().interactRide(player, hand,0, entity);
                 if(this.name == "head")
-                    return parent.interactRide(player, hand,1, entity);
+                    return getParent().interactRide(player, hand,1, entity);
             }
-            return parent.interact(player, hand);
+            return getParent().interact(player, hand);
         }
 
-        InteractionResult result = parent.interactClean(player, hand, this, topClicked);
-        return result.consumesAction() ? result : parent.interact(player, hand);
+        InteractionResult result = getParent().interactClean(player, hand, this, topClicked);
+        return result.consumesAction() ? result : getParent().interact(player, hand);
     }
-
-    protected void defineSynchedData() {
-    }
-    protected void readAdditionalSaveData(CompoundTag compound) {
-    }
-
-    protected void addAdditionalSaveData(CompoundTag compound) {
-    }
-
-    public boolean isPickable() {
-        return true;
-    }
-    @Nullable
-    public ItemStack getPickResult() {
-        return this.parent.getPickResult();
-    }
-
-    public boolean hurt(DamageSource source, float amount) {
-        return this.isInvulnerableTo(source) ? false : this.parent.hurt(source, amount);
-    }
-
-    public boolean is(Entity entity) {
-        return this == entity || this.parent == entity;
-    }
-    public boolean isPushable() {
-        return false;
-    }
-
-    @Override
-    public boolean canBeCollidedWith() {
-        return true;
-    }
-    public EntityDimensions getDimensions(Pose pose) {
-        return this.size;
-    }
-
 }
+
+

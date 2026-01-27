@@ -54,11 +54,11 @@ public class AnchorEntity extends WhaleWidgetEntity {
     }
 
     @Override
-    protected void defineSynchedData() {
-        super.defineSynchedData();
-        this.entityData.define(DATA_IS_CLOSED, true);
-        this.entityData.define(DATA_IS_DOWN, false);
-        this.entityData.define(DATA_HEAD_POSITION, BlockPos.ZERO);
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        super.defineSynchedData(builder);
+        builder.define(DATA_IS_CLOSED, true);
+        builder.define(DATA_IS_DOWN, false);
+        builder.define(DATA_HEAD_POSITION, BlockPos.ZERO);
     }
 
     @Override

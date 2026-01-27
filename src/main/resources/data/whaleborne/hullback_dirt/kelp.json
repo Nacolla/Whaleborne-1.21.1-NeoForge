@@ -5,6 +5,6 @@
   "growth": "minecraft:kelp_plant",
   "removable_with": ["shears"],
   "drop": "minecraft:kelp",
-  "sound_on_growth": "minecraft:block.kelp.place",
-  "sound_on_remove": "minecraft:block.kelp.break"
+  "sound_on_growth": "minecraft:block.wet_grass.place",
+  "sound_on_remove": "minecraft:block.wet_grass.break"
 }

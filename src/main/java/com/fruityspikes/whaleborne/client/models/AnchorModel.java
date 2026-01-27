@@ -4,6 +4,7 @@ import com.fruityspikes.whaleborne.server.entities.AnchorEntity;
 import com.fruityspikes.whaleborne.server.entities.SailEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
@@ -15,6 +16,7 @@ public class AnchorModel<T extends AnchorEntity> extends EntityModel<T> {
     private final ModelPart bb_main;
 
     public AnchorModel(ModelPart root) {
+        super(RenderType::entityCutoutNoCull);
         this.spool = root.getChild("spool");
         this.bb_main = root.getChild("bb_main");
     }
@@ -41,8 +43,8 @@ public class AnchorModel<T extends AnchorEntity> extends EntityModel<T> {
     }
 
     @Override
-    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int i, int i1, float v, float v1, float v2, float v3) {
-        bb_main.render(poseStack, vertexConsumer, i, i1, v, v1, v2, v3);
-        spool.render(poseStack, vertexConsumer, i, i1, v, v1, v2, v3);
+    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, int color) {
+        bb_main.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
+        spool.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
     }
 }

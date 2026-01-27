@@ -22,6 +22,11 @@ public class MastEntity extends RideableWhaleWidgetEntity{
     }
 
     @Override
+    protected net.minecraft.world.phys.Vec3 getPassengerAttachmentPoint(net.minecraft.world.entity.Entity passenger, net.minecraft.world.entity.EntityDimensions dimensions, float scale) {
+        return super.getPassengerAttachmentPoint(passenger, dimensions, scale).add(0, this.getBbHeight() - 16.0f, 0);
+    }
+
+    @Override
     public InteractionResult interact(Player player, InteractionHand hand) {
         if(this.getPassengers().size() > 0 && !(this.getFirstPassenger() instanceof Player player1)){
             LivingEntity entity = this.getFirstPassenger();

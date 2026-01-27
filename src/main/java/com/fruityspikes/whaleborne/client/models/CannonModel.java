@@ -4,6 +4,7 @@ import com.fruityspikes.whaleborne.server.entities.CannonEntity;
 import com.fruityspikes.whaleborne.server.entities.HelmEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
@@ -14,6 +15,7 @@ public class CannonModel<T extends CannonEntity> extends EntityModel<T> {
     private final ModelPart cannon;
     private final ModelPart bb_main;
     public CannonModel(ModelPart root) {
+        super(RenderType::entityCutoutNoCull);
         this.cannon = root.getChild("cannon");
         this.bb_main = root.getChild("bb_main");
     }
@@ -39,9 +41,9 @@ public class CannonModel<T extends CannonEntity> extends EntityModel<T> {
     }
 
     @Override
-    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int i, int i1, float v, float v1, float v2, float v3) {
-        cannon.render(poseStack, vertexConsumer, i, i1, v, v1, v2, v3);
-        bb_main.render(poseStack, vertexConsumer, i, i1, v, v1, v2, v3);
+    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, int color) {
+        cannon.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
+        bb_main.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
     }
 }
 

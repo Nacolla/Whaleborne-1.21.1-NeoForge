@@ -5,7 +5,6 @@ import com.fruityspikes.whaleborne.client.menus.CannonScreen;
 import com.fruityspikes.whaleborne.client.menus.HullbackScreen;
 import com.fruityspikes.whaleborne.client.models.*;
 import com.fruityspikes.whaleborne.client.renderers.*;
-import com.fruityspikes.whaleborne.network.WhaleborneNetwork;
 import com.fruityspikes.whaleborne.server.entities.AnchorEntity;
 import com.fruityspikes.whaleborne.server.entities.HelmEntity;
 import com.fruityspikes.whaleborne.server.entities.HullbackEntity;
@@ -13,25 +12,31 @@ import com.fruityspikes.whaleborne.server.particles.WBSmokeProvider;
 import com.fruityspikes.whaleborne.server.registries.*;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
+import net.neoforged.neoforge.event.entity.RegisterSpawnPlacementsEvent;
+import net.minecraft.world.entity.SpawnPlacementTypes;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.*;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.AddReloadListenerEvent;
-import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
-import net.minecraftforge.event.server.ServerStartingEvent;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.DistExecutor;
-import net.minecraftforge.fml.ModLoadingContext;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.config.ModConfig;
-import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
+import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.AddReloadListenerEvent;
+import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
+import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.loading.FMLLoader;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.fml.ModContainer;
 import org.slf4j.Logger;
 
 // The value here should match an entry in the META-INF/mods.toml file
@@ -41,12 +46,11 @@ public class Whaleborne
     // Define mod id in a common place for everything to reference
     public static final String MODID = "whaleborne";
     public static final Logger LOGGER = LogUtils.getLogger();
-    public static CommonProxy PROXY = DistExecutor.safeRunForDist(() -> ClientProxy::new, () -> CommonProxy::new);
+    public static CommonProxy PROXY = FMLLoader.getDist().isClient() ? new ClientProxy() : new CommonProxy();
 
-    public static final ResourceLocation ANCHOR_GUI = new ResourceLocation(Whaleborne.MODID, "textures/gui/anchor.png");
-    public Whaleborne()
+    public static final ResourceLocation ANCHOR_GUI = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/gui/anchor.png");
+    public Whaleborne(IEventBus modEventBus, ModContainer modContainer)
     {
-        IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
 
         modEventBus.addListener(this::commonSetup);
 
@@ -58,13 +62,13 @@ public class Whaleborne
         WBLootModifierRegistry.LOOT_MODIFIER_SERIALIZERS.register(modEventBus);
         WBParticleRegistry.PARTICLE_TYPES.register(modEventBus);
         WBCreativeTabsRegistry.CREATIVE_MODE_TABS.register(modEventBus);
-        WhaleborneNetwork.init();
 
-        MinecraftForge.EVENT_BUS.register(this);
+        NeoForge.EVENT_BUS.register(this);
 
         PROXY.init();
         modEventBus.addListener(this::addCreative);
-        ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, Config.CLIENT_SPEC);
+        modEventBus.addListener(this::registerSpawnPlacements);
+        modContainer.registerConfig(ModConfig.Type.CLIENT, Config.CLIENT_SPEC);
     }
     private void commonSetup(final FMLCommonSetupEvent event)
     {
@@ -86,6 +90,16 @@ public class Whaleborne
         //    event.accept(EXAMPLE_BLOCK_ITEM);
     }
 
+    public void registerSpawnPlacements(RegisterSpawnPlacementsEvent event) {
+        event.register(
+            WBEntityRegistry.HULLBACK.get(),
+            SpawnPlacementTypes.IN_WATER,
+            Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+            HullbackEntity::checkHullbackSpawnRules,
+            RegisterSpawnPlacementsEvent.Operation.REPLACE
+        );
+    }
+
     // You can use SubscribeEvent and let the Event Bus discover methods to call
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event)
@@ -100,12 +114,14 @@ public class Whaleborne
         event.addListener(Whaleborne.PROXY.getHullbackDirtManager());
     }
     // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
-    @Mod.EventBusSubscriber(modid = MODID, bus = Mod.EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
+    @EventBusSubscriber(modid = MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
     public static class ClientModEvents
     {
         @SubscribeEvent
-        public static void registerOverlays(RegisterGuiOverlaysEvent event) {
-            event.registerAboveAll("whaleborne_anchor_overlay", (gui, poseStack, partialTick, width, height) -> {
+        public static void registerOverlays(RegisterGuiLayersEvent event) {
+            event.registerAboveAll(ResourceLocation.fromNamespaceAndPath(MODID, "anchor_overlay"), (guiGraphics, partialTick) -> {
+                int width = Minecraft.getInstance().getWindow().getGuiScaledWidth();
+                int height = Minecraft.getInstance().getWindow().getGuiScaledHeight();
                 Player player = Minecraft.getInstance().player;
 
                 if (player.getVehicle() instanceof HelmEntity) {
@@ -115,9 +131,9 @@ public class Whaleborne
                                     int j = width / 2 - 12;
                                     int k = height - 28 - 13;
 
-                                    poseStack.pose().pushPose();
-                                    poseStack.blit(ANCHOR_GUI, j, k, 0, 0, hullback.hasAnchorDown() ? 24 : 0, 24, 24, 24, 48);
-                                    poseStack.pose().popPose();
+                                    guiGraphics.pose().pushPose();
+                                    guiGraphics.blit(ANCHOR_GUI, j, k, 0, 0, hullback.hasAnchorDown() ? 24 : 0, 24, 24, 24, 48);
+                                    guiGraphics.pose().popPose();
                                     break;
                             }
                         }
@@ -142,11 +158,15 @@ public class Whaleborne
         }
 
         @SubscribeEvent
+        public static void registerScreens(RegisterMenuScreensEvent event) {
+            event.register(WBMenuRegistry.CANNON_MENU.get(), CannonScreen::new);
+            event.register(WBMenuRegistry.HULLBACK_MENU.get(), HullbackScreen::new);
+        }
+
+        @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event)
         {
-            MenuScreens.register(WBMenuRegistry.CANNON_MENU.get(), CannonScreen::new);
-            MenuScreens.register(WBMenuRegistry.HULLBACK_MENU.get(), HullbackScreen::new);
-
+            //Screen registration moved to registerScreens
             LOGGER.info("HELLO FROM CLIENT SETUP");
             LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
         }

@@ -56,7 +56,7 @@ public class WhaleEquipment extends Item {
                     ServerLevel serverlevel = (ServerLevel)level;
 
                     Consumer<AnchorHeadEntity> consumer = EntityType.createDefaultStackConfig(serverlevel, itemstack, context.getPlayer());
-                    AnchorHeadEntity anchorHead = (AnchorHeadEntity) WBEntityRegistry.ANCHOR_HEAD.get().create(serverlevel, itemstack.getTag(), consumer, blockpos, MobSpawnType.SPAWN_EGG, true, true);
+                    AnchorHeadEntity anchorHead = (AnchorHeadEntity) WBEntityRegistry.ANCHOR_HEAD.get().create(serverlevel, consumer, blockpos, MobSpawnType.SPAWN_EGG, true, true);
 
                     if (anchorHead == null) {
                         return InteractionResult.FAIL;

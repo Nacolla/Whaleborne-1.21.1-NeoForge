@@ -9,6 +9,9 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.Level;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.world.entity.EntityDimensions;
+import net.minecraft.world.phys.Vec3;
 
 import javax.annotation.Nullable;
 import java.util.List;
@@ -46,8 +49,8 @@ public class RideableWhaleWidgetEntity extends WhaleWidgetEntity{
     }
 
     @Override
-    public double getPassengersRidingOffset() {
-        return this.getBbHeight() + 0.5f;
+    protected Vec3 getPassengerAttachmentPoint(Entity passenger, EntityDimensions dimensions, float scale) {
+        return super.getPassengerAttachmentPoint(passenger, dimensions, scale).add(0, this.getBbHeight() + 0.5f, 0);
     }
 
     @Override
@@ -55,8 +58,8 @@ public class RideableWhaleWidgetEntity extends WhaleWidgetEntity{
         return false;
     }
     @Override
-    protected void defineSynchedData() {
-        super.defineSynchedData();
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        super.defineSynchedData(builder);
     }
 
     @Override

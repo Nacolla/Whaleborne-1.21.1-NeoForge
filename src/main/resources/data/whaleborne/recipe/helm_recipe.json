@@ -16,7 +16,7 @@
             "item": "minecraft:lead"
         }
     },
-    "result": {"item": "whaleborne:helm"
+    "result": {"id": "whaleborne:helm"
   },
   "show_notification": false
 }

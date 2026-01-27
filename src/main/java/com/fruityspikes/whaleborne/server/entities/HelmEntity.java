@@ -23,8 +23,8 @@ public class HelmEntity extends RideableWhaleWidgetEntity implements PlayerRidea
     public float wheelRotation;
     public float prevWheelRotation;
     @Override
-    public double getPassengersRidingOffset() {
-        return this.getBbHeight();
+    protected Vec3 getPassengerAttachmentPoint(Entity passenger, EntityDimensions dimensions, float scale) {
+        return super.getPassengerAttachmentPoint(passenger, dimensions, scale).add(0, this.getBbHeight() - 1.25f, 0);
     }
 
     public float getWheelRotation() {

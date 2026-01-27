@@ -3,6 +3,7 @@ package com.fruityspikes.whaleborne.client.models;
 import com.fruityspikes.whaleborne.server.entities.AnchorHeadEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
@@ -13,6 +14,7 @@ public class AnchorHeadModel<T extends Entity> extends EntityModel<T> {
     private final ModelPart bb_main;
 
     public AnchorHeadModel(ModelPart root) {
+        super(RenderType::entityCutoutNoCull);
         this.bb_main = root.getChild("bb_main");
     }
 
@@ -37,7 +39,7 @@ public class AnchorHeadModel<T extends Entity> extends EntityModel<T> {
     }
 
     @Override
-    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, float red, float green, float blue, float alpha) {
-        bb_main.render(poseStack, vertexConsumer, packedLight, packedOverlay, red, green, blue, alpha);
+    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, int color) {
+        bb_main.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
     }
 }

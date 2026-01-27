@@ -15,10 +15,16 @@ import net.minecraft.world.entity.animal.horse.AbstractHorse;
 import net.minecraft.world.entity.player.Inventory;
 
 public class HullbackScreen extends AbstractContainerScreen<HullbackMenu> {
-    private static final ResourceLocation TEXTURE = new ResourceLocation(Whaleborne.MODID, "textures/gui/hullback.png");
-    private static final ResourceLocation STEEN = new ResourceLocation(Whaleborne.MODID, "textures/gui/steen.png");
-    private static final ResourceLocation MOBIUS = new ResourceLocation(Whaleborne.MODID, "textures/gui/mobius.png");
-    private static final ResourceLocation GUI_TEXTURE = new ResourceLocation("minecraft", "textures/gui/icons.png");
+    private static final ResourceLocation TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/gui/hullback.png");
+    private static final ResourceLocation STEEN = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/gui/steen.png");
+    private static final ResourceLocation MOBIUS = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/gui/mobius.png");
+    private static final ResourceLocation HEART_CONTAINER = ResourceLocation.withDefaultNamespace("hud/heart/container");
+    private static final ResourceLocation HEART_FULL = ResourceLocation.withDefaultNamespace("hud/heart/full");
+    private static final ResourceLocation HEART_HALF = ResourceLocation.withDefaultNamespace("hud/heart/half");
+    private static final ResourceLocation ARMOR_EMPTY = ResourceLocation.withDefaultNamespace("hud/armor_empty");
+    private static final ResourceLocation ARMOR_FULL = ResourceLocation.withDefaultNamespace("hud/armor_full");
+    private static final ResourceLocation ARMOR_HALF = ResourceLocation.withDefaultNamespace("hud/armor_half");
+
     private float xMouse;
     private float yMouse;
     public HullbackScreen(HullbackMenu menu, Inventory playerInventory, Component title) {
@@ -54,7 +60,6 @@ public class HullbackScreen extends AbstractContainerScreen<HullbackMenu> {
             int i = 6;
             int j = (int) ((menu.getHealth() / 10) * 12);
 
-            int l = 91;
             int j1 = 0;
 
             for(boolean flag = false; i > 0; j1 += (int) 6) {
@@ -62,16 +67,14 @@ public class HullbackScreen extends AbstractContainerScreen<HullbackMenu> {
                 i -= k1;
 
                 for(int l1 = 0; l1 < k1; ++l1) {
-                    boolean i2 = true;
-                    int j2 = 0;
                     int k2 = x - l1 * 8 - 9;
-                    guiGraphics.blit(GUI_TEXTURE, k2, y, 52 + j2 * 9, 9, 9, 9);
+                    guiGraphics.blitSprite(HEART_CONTAINER, k2, y, 9, 9);
                     if (l1 * 2 + 1 + j1 < j) {
-                        guiGraphics.blit(GUI_TEXTURE, k2, y, 88, 9, 9, 9);
+                        guiGraphics.blitSprite(HEART_FULL, k2, y, 9, 9);
                     }
 
                     if (l1 * 2 + 1 + j1 == j) {
-                        guiGraphics.blit(GUI_TEXTURE, k2, y, 97, 9, 9, 9);
+                        guiGraphics.blitSprite(HEART_HALF, k2, y, 9, 9);
                     }
                 }
             }
@@ -86,34 +89,27 @@ public class HullbackScreen extends AbstractContainerScreen<HullbackMenu> {
             int i = 12;
             if (i != 0) {
                 int i3 = (int)Math.ceil(menu.getArmorProgress() * 12);
-                //this.minecraft.getProfiler().popPush("mountHealth");
-                int k = 39;
-                int l = 91;
-                int i1 = k;
                 int j1 = 0;
-                int k2 = 39;
+                int i1 = 39; // Unused but kept logic distinct
                 for(boolean flag = false; i > 0; j1 += 20) {
                     int k1 = i;
                     i -= k1;
 
                     int l3;
                     for(int k3 = 0; k3 < 6; ++k3) {
-                        //if (i3 > 0) {
-                            l3 = x + k3 * 8;
-                            if (k3 * 2 + 1 < i3) {
-                                guiGraphics.blit(GUI_TEXTURE, l3, y, 34, 9, 9, 9);
-                            }
+                        l3 = x + k3 * 8;
+                        if (k3 * 2 + 1 < i3) {
+                            guiGraphics.blitSprite(ARMOR_FULL, l3, y, 9, 9);
+                        }
 
-                            if (k3 * 2 + 1 == i3) {
-                                guiGraphics.blit(GUI_TEXTURE, l3, y, 25, 9, 9, 9);
-                            }
+                        if (k3 * 2 + 1 == i3) {
+                            guiGraphics.blitSprite(ARMOR_HALF, l3, y, 9, 9);
+                        }
 
-                            if (k3 * 2 + 1 > i3) {
-                                guiGraphics.blit(GUI_TEXTURE, l3, y, 16, 9, 9, 9);
-                            }
-                        //}
+                        if (k3 * 2 + 1 > i3) {
+                            guiGraphics.blitSprite(ARMOR_EMPTY, l3, y, 9, 9);
+                        }
                     }
-
                     i1 -= 10;
                 }
             }
@@ -122,7 +118,7 @@ public class HullbackScreen extends AbstractContainerScreen<HullbackMenu> {
     }
     @Override
     public void render(GuiGraphics gui, int mouseX, int mouseY, float partialTick) {
-        renderBackground(gui);
+        renderBackground(gui, mouseX, mouseY, partialTick);
         super.render(gui, mouseX, mouseY, partialTick);
         this.xMouse = (float)mouseX;
         this.yMouse = (float)mouseY;

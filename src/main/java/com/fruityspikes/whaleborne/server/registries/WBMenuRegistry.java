@@ -6,23 +6,23 @@ import com.fruityspikes.whaleborne.client.menus.HullbackMenu;
 import com.fruityspikes.whaleborne.server.entities.CannonEntity;
 import com.fruityspikes.whaleborne.server.items.WhaleEquipment;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.Level;
-import net.minecraftforge.common.extensions.IForgeMenuType;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.RegistryObject;
+import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
+import net.neoforged.neoforge.registries.DeferredHolder;
+import net.neoforged.neoforge.registries.DeferredRegister;
 
 public class WBMenuRegistry {
-    public static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(ForgeRegistries.MENU_TYPES, Whaleborne.MODID);
+    public static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(Registries.MENU, Whaleborne.MODID);
 
-    public static final RegistryObject<MenuType<CannonMenu>> CANNON_MENU =
+    public static final DeferredHolder<MenuType<?>, MenuType<CannonMenu>> CANNON_MENU =
             MENUS.register("cannon_menu", () ->
-                    IForgeMenuType.create(CannonMenu::fromNetwork));
-    public static final RegistryObject<MenuType<HullbackMenu>> HULLBACK_MENU =
+                    IMenuTypeExtension.create(CannonMenu::fromNetwork));
+    public static final DeferredHolder<MenuType<?>, MenuType<HullbackMenu>> HULLBACK_MENU =
             MENUS.register("hullback_menu", () ->
-                    IForgeMenuType.create(HullbackMenu::fromNetwork));
+                    IMenuTypeExtension.create(HullbackMenu::fromNetwork));
 }

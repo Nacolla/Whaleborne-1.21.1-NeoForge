@@ -3,17 +3,18 @@ package com.fruityspikes.whaleborne.server.entities;
 import com.fruityspikes.whaleborne.Config;
 import com.fruityspikes.whaleborne.Whaleborne;
 import com.fruityspikes.whaleborne.client.menus.HullbackMenu;
-import com.fruityspikes.whaleborne.network.HullbackHurtPacket;
-import com.fruityspikes.whaleborne.network.SyncHullbackDirtPacket;
-import com.fruityspikes.whaleborne.network.WhaleborneNetwork;
+import com.fruityspikes.whaleborne.network.HullbackHurtPayload;
+import com.fruityspikes.whaleborne.network.SyncHullbackDirtPayload;
 import com.fruityspikes.whaleborne.server.data.HullbackDirtManager;
 import com.fruityspikes.whaleborne.server.registries.*;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
@@ -24,6 +25,7 @@ import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.server.level.ServerEntity;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -60,16 +62,22 @@ import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.core.Holder;
+import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
+import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
 import net.minecraft.world.phys.shapes.Shapes;
-import net.minecraftforge.common.ForgeMod;
-import net.minecraftforge.common.Tags;
-import net.minecraftforge.common.util.LazyOptional;
-import net.minecraftforge.entity.PartEntity;
-import net.minecraftforge.fluids.FluidType;
-import net.minecraftforge.items.IItemHandler;
-import net.minecraftforge.items.wrapper.InvWrapper;
-import net.minecraftforge.network.NetworkHooks;
-import net.minecraftforge.network.PacketDistributor;
+import net.neoforged.neoforge.common.NeoForgeMod;
+import net.neoforged.neoforge.common.ItemAbilities;
+import net.neoforged.neoforge.common.Tags;
+import net.neoforged.neoforge.fluids.FluidType;
+import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.ItemStackHandler;
+import net.neoforged.neoforge.items.wrapper.InvWrapper;
+import net.neoforged.neoforge.network.PacketDistributor;
+
+import org.joml.Matrix2dc;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -77,10 +85,10 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class HullbackEntity extends WaterAnimal implements ContainerListener, HasCustomInventoryScreen, PlayerRideableJumping, Saddleable {
-    private static final UUID SAIL_SPEED_MODIFIER_UUID = UUID.fromString("12345678-1234-1234-1234-1234567890ab");
+    private static final ResourceLocation SAIL_SPEED_MODIFIER_ID = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "sail_speed_modifier");
     private boolean validatedAfterLoad = false;
     private float leftEyeYaw, rightEyeYaw, eyePitch;
-    private LazyOptional<IItemHandler> itemHandler = LazyOptional.empty();
+    private IItemHandler itemHandler;
     private boolean immobile;
     private boolean tamedCoolDown;
     private Vec3 currentTarget;
@@ -94,7 +102,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     public static final int INV_SLOT_CROWN = 0;
     public static final int INV_SLOT_SADDLE = 1;
     public static final int INV_SLOT_ARMOR = 2;
-    public static boolean HAS_MOBIUS_SPAWNED = false;
+    public boolean HAS_MOBIUS_SPAWNED = false;
     public static final EntityDataAccessor<ItemStack> DATA_CROWN_ID = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.ITEM_STACK);
     public static final EntityDataAccessor<ItemStack> DATA_ARMOR = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.ITEM_STACK);
     public static final EntityDataAccessor<Byte> DATA_ID_FLAGS = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.BYTE);
@@ -127,8 +135,8 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     private float mouthOpenProgress;
     private float mouthTarget;
 
-    public static UUID getSailSpeedModifierUuid() {
-        return SAIL_SPEED_MODIFIER_UUID;
+    public static ResourceLocation getSailSpeedModifierId() {
+        return SAIL_SPEED_MODIFIER_ID;
     }
 
     public float AttributeSpeedModifier = 1;
@@ -160,7 +168,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         super(entityType, level);
 
         this.inventory.addListener(this);
-        this.itemHandler = LazyOptional.of(() -> new InvWrapper(this.inventory));
+        this.itemHandler = new InvWrapper(this.inventory);
 
         this.moveControl = new SmoothSwimmingMoveControl(this, 1, 2, 0.1F, 0.1F, true);
         this.lookControl = new SmoothSwimmingLookControl(this, 1);
@@ -251,8 +259,20 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     }
 
     @Override
-    public Packet<ClientGamePacketListener> getAddEntityPacket() {
-        return NetworkHooks.getEntitySpawningPacket(this);
+    public Packet<ClientGamePacketListener> getAddEntityPacket(ServerEntity entity) {
+        return super.getAddEntityPacket(entity);
+    }
+
+
+
+    // NOVO: Método para garantir sincronização
+    public void forceEquipmentSync() {
+        if (!this.level().isClientSide) {
+            this.entityData.set(DATA_ARMOR, this.inventory.getItem(INV_SLOT_ARMOR).copy());
+            this.entityData.set(DATA_CROWN_ID, this.inventory.getItem(INV_SLOT_CROWN).copy());
+            this.setFlag(4, !this.inventory.getItem(INV_SLOT_SADDLE).isEmpty());
+            sendHurtSyncPacket();
+        }
     }
 
     private void initClientDirt() {
@@ -375,15 +395,12 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
     public void syncDirtArray(BlockState[][] array, int arrayType, boolean isBottom) {
         if (!level().isClientSide) {
-            WhaleborneNetwork.INSTANCE.send(
-                    PacketDistributor.TRACKING_ENTITY.with(() -> this),
-                    new SyncHullbackDirtPacket(getId(), array, arrayType, isBottom)
-            );
+            PacketDistributor.sendToPlayersTrackingEntity(this, new SyncHullbackDirtPayload(getId(), array, arrayType, isBottom));
         }
     }
 
     public static AttributeSupplier.Builder createAttributes() {
-        return Mob.createMobAttributes().add(Attributes.MAX_HEALTH, 100.0).add(Attributes.MOVEMENT_SPEED, 1.2000000476837158).add(Attributes.ATTACK_DAMAGE, 3.0);
+        return Mob.createMobAttributes().add(Attributes.MAX_HEALTH, 100.0).add(Attributes.MOVEMENT_SPEED, 1.2000000476837158).add(Attributes.ATTACK_DAMAGE, 3.0).add(Attributes.KNOCKBACK_RESISTANCE, 1.0);
     }
 
     protected int getInventorySize() {
@@ -406,16 +423,23 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         this.inventory.addListener(this);
         this.updateContainerEquipment();
-        this.itemHandler = LazyOptional.of(() -> new InvWrapper(this.inventory));
+        this.itemHandler = new InvWrapper(this.inventory);
     }
     public void updateContainerEquipment() {
         ItemStack crown = this.inventory.getItem(INV_SLOT_CROWN);
         ItemStack armor = this.inventory.getItem(INV_SLOT_ARMOR);
-        boolean hasSaddle = !this.inventory.getItem(INV_SLOT_SADDLE).isEmpty();
-        this.entityData.set(DATA_CROWN_ID, crown);
-        this.entityData.set(DATA_ARMOR, armor);
-        sendHurtSyncPacket();
+        ItemStack saddle = this.inventory.getItem(INV_SLOT_SADDLE);
+        boolean hasSaddle = !saddle.isEmpty();
+        
+        // MODIFICADO: Criar cópias para evitar problemas de referência
+        this.entityData.set(DATA_CROWN_ID, crown.isEmpty() ? ItemStack.EMPTY : crown.copy());
+        this.entityData.set(DATA_ARMOR, armor.isEmpty() ? ItemStack.EMPTY : armor.copy());
         this.setFlag(4, hasSaddle);
+        
+        // NOVO: Sincronizar imediatamente se no servidor
+        if (!this.level().isClientSide) {
+            sendHurtSyncPacket();
+        }
     }
     public void containerChanged(Container invBasic) {
         ItemStack itemstack = this.getArmor();
@@ -458,8 +482,9 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         return this.isAlive() && this.isTamed();
     }
 
-    public void equipSaddle(@Nullable SoundSource source) {
-        this.inventory.setItem(INV_SLOT_SADDLE, new ItemStack(Items.SADDLE));
+    @Override
+    public void equipSaddle(ItemStack stack, @Nullable SoundSource source) {
+        this.inventory.setItem(INV_SLOT_SADDLE, stack);
     }
     public boolean isSaddled() {
         return this.getFlag(4);
@@ -477,37 +502,55 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             this.entityData.set(DATA_ID_FLAGS, (byte)(b0 & ~flagId));
         }
     }
-    protected void defineSynchedData() {
-        super.defineSynchedData();
-        this.entityData.define(DATA_ID_FLAGS, (byte)0);
+    @Override
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        super.defineSynchedData(builder);
+        builder.define(DATA_ID_FLAGS, (byte)0);
 
-        this.entityData.define(DATA_SEAT_0, Optional.empty());
-        this.entityData.define(DATA_SEAT_1, Optional.empty());
-        this.entityData.define(DATA_SEAT_2, Optional.empty());
-        this.entityData.define(DATA_SEAT_3, Optional.empty());
-        this.entityData.define(DATA_SEAT_4, Optional.empty());
-        this.entityData.define(DATA_SEAT_5, Optional.empty());
-        this.entityData.define(DATA_SEAT_6, Optional.empty());
+        builder.define(DATA_SEAT_0, Optional.empty());
+        builder.define(DATA_SEAT_1, Optional.empty());
+        builder.define(DATA_SEAT_2, Optional.empty());
+        builder.define(DATA_SEAT_3, Optional.empty());
+        builder.define(DATA_SEAT_4, Optional.empty());
+        builder.define(DATA_SEAT_5, Optional.empty());
+        builder.define(DATA_SEAT_6, Optional.empty());
 
-        this.entityData.define(DATA_CROWN_ID, ItemStack.EMPTY);
-        this.entityData.define(DATA_ARMOR, ItemStack.EMPTY);
-        this.entityData.define(DATA_MOUTH_PROGRESS, 0f);
+        builder.define(DATA_CROWN_ID, ItemStack.EMPTY);
+        builder.define(DATA_ARMOR, ItemStack.EMPTY);
+        builder.define(DATA_MOUTH_PROGRESS, 0f);
     }
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
         ListTag listtag = new ListTag();
+        
+        Whaleborne.LOGGER.info("HullbackEntity.addAdditionalSaveData saving for ID: {}", this.getId());
 
         for(int i = 0; i < this.inventory.getContainerSize(); ++i) {
             ItemStack itemstack = this.inventory.getItem(i);
             if (!itemstack.isEmpty()) {
-                CompoundTag compoundtag = new CompoundTag();
-                compoundtag.putByte("Slot", (byte)i);
-                itemstack.save(compoundtag);
-                listtag.add(compoundtag);
+                Whaleborne.LOGGER.info("Saving item at slot {}: {}", i, itemstack);
+                
+                try {
+                    // CORREÇÃO: Em 1.21+, itemstack.save retorna a tag populada/nova, 
+                    // não necessariamente muta a passada da mesma forma que antes ou requer uso do retorno.
+                    // Para garantir, vamos pegar o retorno.
+                    Tag savedTag = itemstack.save(this.registryAccess());
+                    if (savedTag instanceof CompoundTag itemTag) {
+                        itemTag.putByte("Slot", (byte)i);
+                        listtag.add(itemTag);
+                        Whaleborne.LOGGER.info("Saved tag for slot {}: {}", i, itemTag);
+                    } else {
+                        Whaleborne.LOGGER.warn("Saved tag is not a CompoundTag: {}", savedTag);
+                    }
+                } catch (Exception e) {
+                    Whaleborne.LOGGER.error("Error saving item at slot {}: {}", i, e.getMessage());
+                    e.printStackTrace();
+                }
             }
         }
         compound.put("Items", listtag);
         compound.putByte("Flags", this.entityData.get(DATA_ID_FLAGS));
+        Whaleborne.LOGGER.info("Saved Flags: {}", this.entityData.get(DATA_ID_FLAGS));
 
         CompoundTag hasMobiusSpawned = new CompoundTag();
         hasMobiusSpawned.putBoolean("HasMobiusSpawned", HAS_MOBIUS_SPAWNED);
@@ -539,19 +582,31 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     }
     public void readAdditionalSaveData(CompoundTag compound) {
         super.readAdditionalSaveData(compound);
+        
+        Whaleborne.LOGGER.info("HullbackEntity.readAdditionalSaveData called for ID: {}", this.getId());
+        
+        // CORREÇÃO: Inicialize o inventário ANTES de ler dados do NBT
+        this.createInventory();
+        
         ListTag items = compound.getList("Items", 10);
+        Whaleborne.LOGGER.info("Loading {} items from NBT.", items.size());
 
         for(int i = 0; i < items.size(); i++) {
             CompoundTag itemTag = items.getCompound(i);
             int slot = itemTag.getByte("Slot") & 255;
+            Whaleborne.LOGGER.info("Item {} at slot {}: {}", i, slot, itemTag);
+            
             if (slot < this.inventory.getContainerSize()) {
-                this.inventory.setItem(slot, ItemStack.of(itemTag));
+                ItemStack stack = ItemStack.parse(this.registryAccess(), itemTag).orElse(ItemStack.EMPTY);
+                Whaleborne.LOGGER.info("Parsed Stack: {} (Empty: {})", stack, stack.isEmpty());
+                this.inventory.setItem(slot, stack);
             }
         }
 
-        this.createInventory();
         this.entityData.set(DATA_ID_FLAGS, compound.getByte("Flags"));
         HAS_MOBIUS_SPAWNED = compound.getBoolean("HasMobiusSpawned");
+        
+        Whaleborne.LOGGER.info("Flags loaded: {}", compound.getByte("Flags"));
 
         boolean hasAnySeatData = IntStream.range(0, 7)
                 .anyMatch(i -> compound.hasUUID("Seat_" + i));
@@ -635,9 +690,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     public float getLeftEyeYaw() { return leftEyeYaw; }
     public float getRightEyeYaw() { return rightEyeYaw; }
     public float getEyePitch() { return eyePitch; }
-    public boolean canBreatheUnderwater() {
-        return isVehicle();
-    }
+    // canBreatheUnderwater is final in LivingEntity (WaterAnimal returns true by default)
     protected void handleAirSupply(int airSupply) {
     }
     public int getMaxAirSupply() {
@@ -672,7 +725,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         return true;
     }
 
-    public PartEntity<?>[] getParts() {
+    public HullbackPartEntity[] getParts() {
         return this.subEntities;
     }
 
@@ -799,7 +852,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             if (!entity.noPhysics && !(entity instanceof HullbackPartEntity) && !(entity instanceof HullbackEntity) && !(entity instanceof HullbackWalkableEntity)) {
                 double gravity = entity.isNoGravity() ? 0 : 0.08D;
                 if (entity instanceof LivingEntity living) {
-                    AttributeInstance attribute = living.getAttribute(net.minecraftforge.common.ForgeMod.ENTITY_GRAVITY.get());
+                    AttributeInstance attribute = living.getAttribute(Attributes.GRAVITY);
                     gravity = attribute.getValue();
                 }
                 float f2 = 1.0F;
@@ -988,16 +1041,16 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                         if (entry.drop() != Items.AIR) {
                             for (int i = 0; i < entry.dropAmount(); i++) {
                                 ItemStack dropStack = new ItemStack(entry.drop());
-                                double px = part.getX() + y - part.getSize().width / 2.0;
-                                double py = part.getY() + (top ? part.getSize().height + 0.5f : -0.5f);
-                                double pz = part.getZ() - x + part.getSize().width / 2.0;
+                                double px = part.getX() + y - part.getBbWidth() / 2.0;
+                                double py = part.getY() + (top ? part.getBbHeight() + 0.5f : -0.5f);
+                                double pz = part.getZ() - x + part.getBbWidth() / 2.0;
                                 ItemEntity itemEntity = new ItemEntity(this.level(), px, py, pz, dropStack);
                                 this.level().addFreshEntity(itemEntity);
                             }
                         }
 
                         if (!player.isCreative()) {
-                            player.getItemInHand(hand).hurtAndBreak(1, player, (p) -> p.broadcastBreakEvent(hand));
+                            player.getItemInHand(hand).hurtAndBreak(1, player, hand == InteractionHand.MAIN_HAND ? net.minecraft.world.entity.EquipmentSlot.MAINHAND : net.minecraft.world.entity.EquipmentSlot.OFFHAND);
                         }
 
                         if (entry.soundOnRemove() != null) {
@@ -1025,7 +1078,9 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         if (heldItem.getItem() instanceof SaddleItem) {
             if (!this.isSaddled()) {
                 if (this.isTamed()) {
-                    this.equipSaddle(SoundSource.PLAYERS);
+                    ItemStack saddleToEquip = heldItem.copy();
+                    saddleToEquip.setCount(1);
+                    this.equipSaddle(saddleToEquip, SoundSource.PLAYERS);
                     if (!player.getAbilities().instabuild) {
                         heldItem.shrink(1);
                     }
@@ -1114,7 +1169,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     private String getToolType(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return "hand";
         Item item = stack.getItem();
-        if (item instanceof ShearsItem || stack.is(Tags.Items.SHEARS)) return "shears";
+        if (item instanceof ShearsItem) return "shears";
         if (item instanceof AxeItem || stack.is(ItemTags.AXES)) return "axe";
         if (item instanceof PickaxeItem || stack.is(ItemTags.PICKAXES)) return "pickaxe";
         if (item instanceof HoeItem || stack.is(ItemTags.HOES)) return "hoe";
@@ -1137,48 +1192,8 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     }
 
 
-    @Override
-    public boolean hurt(DamageSource source, float amount) {
-        ItemStack armorStack = this.inventory.getItem(INV_SLOT_ARMOR);
-        ItemStack armorStackClient = this.entityData.get(DATA_ARMOR);
-
-        float resistance = 1;
-        if (armorStack.getItem() instanceof BlockItem blockItem) {
-            BlockState defaultState = blockItem.getBlock().defaultBlockState();
-            resistance = defaultState.getDestroySpeed(null, null);
-            if (resistance < 0) {
-                resistance = 50f;
-            }
-        }
-
-        if (!armorStack.isEmpty()) {
-            float blockChance = resistance / 70f;
-            if (this.random.nextFloat() < blockChance) {
-            amount = 0;
-            this.playSound(SoundEvents.SHIELD_BLOCK, 1.0F, 0.8F + this.random.nextFloat() * 0.4F);
-            this.playSound(WBSoundRegistry.HULLBACK_HAPPY.get(), 1.0F, 0.8F + this.random.nextFloat() * 0.4F);
-            updateContainerEquipment();
-            return super.hurt(source, amount);
-            }
-
-            mouthTarget = 0.8f;
-            int originalCount = armorStack.getCount();
-            int armorDamage = Math.min(originalCount, (int)Math.ceil(amount));
-            armorStack.shrink(armorDamage);
-            this.inventory.setItem(INV_SLOT_ARMOR, armorStack);
-            this.entityData.set(DATA_ARMOR, armorStack);
-            this.playSound(SoundEvents.ITEM_BREAK, 0.8F, 0.8F + this.random.nextFloat() * 0.4F);
-            playSound(WBSoundRegistry.HULLBACK_MAD.get());
-            float remainingDamage = amount - armorDamage;
-            if (remainingDamage > 0) {
-                updateContainerEquipment();
-                return super.hurt(source, remainingDamage);
-            }
-            updateContainerEquipment();
-            return super.hurt(source, remainingDamage);
-        }
-        mouthTarget = 0;
-        return super.hurt(source, amount);
+    public void setMouthTarget(float target) {
+        this.mouthTarget = target;
     }
 
     @Override
@@ -1203,35 +1218,116 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
     private void sendHurtSyncPacket() {
         if (!this.level().isClientSide) {
-            WhaleborneNetwork.INSTANCE.send(
-                    PacketDistributor.TRACKING_ENTITY.with(() -> this),
-                    new HullbackHurtPacket(
-                            this.getId(),
-                            this.inventory.getItem(INV_SLOT_ARMOR),
-                            this.inventory.getItem(INV_SLOT_CROWN),
-                            this.entityData.get(DATA_ID_FLAGS)
-                    )
-            );
+            PacketDistributor.sendToPlayersTrackingEntity(this, new HullbackHurtPayload(
+                    this.getId(),
+                    this.inventory.getItem(INV_SLOT_ARMOR),
+                    this.inventory.getItem(INV_SLOT_CROWN),
+                    this.entityData.get(DATA_ID_FLAGS)
+            ));
         }
     }
 
     @Override
-    public void onAddedToWorld() {
-        super.onAddedToWorld();
-        this.updateContainerEquipment();
-        this.inventory.setItem(INV_SLOT_ARMOR, this.entityData.get(DATA_ARMOR));
+    public void onAddedToLevel() {
+        super.onAddedToLevel();
+        
+        // Inicializar posições das partes imediatamente
+        if (prevPartPositions[0] == null) {
+            for (int i = 0; i < prevPartPositions.length; i++) {
+                prevPartPositions[i] = position();
+                partPosition[i] = position();
+                oldPartPosition[i] = position();
+            }
+        }
+
+        // Calcular posições iniciais das partes
+        updatePartPositions();
+
+        // Calcular assentos iniciais
+        if (isTamed()) {
+            calculateSeats();
+        }
+        
+        // NOVO: Sincronizar equipamento ao adicionar ao mundo
+        if (!this.level().isClientSide) {
+            // Garantir que o inventário está correto
+            ItemStack armor = this.inventory.getItem(INV_SLOT_ARMOR);
+            ItemStack crown = this.inventory.getItem(INV_SLOT_CROWN);
+            ItemStack saddle = this.inventory.getItem(INV_SLOT_SADDLE);
+            
+            if (!armor.isEmpty()) {
+                this.entityData.set(DATA_ARMOR, armor.copy());
+            }
+            if (!crown.isEmpty()) {
+                this.entityData.set(DATA_CROWN_ID, crown.copy());
+            }
+            
+            // Atualizar flag da sela
+            this.setFlag(4, !saddle.isEmpty());
+            
+            // Forçar sincronização
+            this.updateContainerEquipment();
+        }
     }
+
     @Override
     public void tick() {
         super.tick();
+        
+        // NOVO: Validação única após carregar do NBT
+        if (!this.level().isClientSide && !validatedAfterLoad && this.tickCount > 5) {
+            validatedAfterLoad = true;
+            
+            // Revalidar e sincronizar equipamento
+            ItemStack armor = this.inventory.getItem(INV_SLOT_ARMOR);
+            ItemStack crown = this.inventory.getItem(INV_SLOT_CROWN);
+            ItemStack saddle = this.inventory.getItem(INV_SLOT_SADDLE);
+            
+            this.entityData.set(DATA_ARMOR, armor.copy());
+            this.entityData.set(DATA_CROWN_ID, crown.copy());
+            this.setFlag(4, !saddle.isEmpty());
+            
+            // Sincronizar para todos os clientes
+            sendHurtSyncPacket();
+            syncDirtToClients();
+        }
 
         if(tickCount % 40 == 0) {
             this.entityData.set(DATA_ARMOR, this.inventory.getItem(INV_SLOT_ARMOR));
         }
 
+        // NOVO: No cliente, restaurar do entityData se necessário
+        if (this.level().isClientSide) {
+            ItemStack armorInInventory = this.inventory.getItem(INV_SLOT_ARMOR);
+            ItemStack armorInData = this.entityData.get(DATA_ARMOR);
+            
+            if (armorInInventory.isEmpty() && !armorInData.isEmpty()) {
+                this.inventory.setItem(INV_SLOT_ARMOR, armorInData.copy());
+            }
+            
+            ItemStack crownInInventory = this.inventory.getItem(INV_SLOT_CROWN);
+            ItemStack crownInData = this.entityData.get(DATA_CROWN_ID);
+            
+            if (crownInInventory.isEmpty() && !crownInData.isEmpty()) {
+                this.inventory.setItem(INV_SLOT_CROWN, crownInData.copy());
+            }
+            
+            // Verificar sela
+            boolean hasSaddleFlag = this.getFlag(4);
+            ItemStack saddleInInventory = this.inventory.getItem(INV_SLOT_SADDLE);
+            
+            if (hasSaddleFlag && saddleInInventory.isEmpty()) {
+                this.inventory.setItem(INV_SLOT_SADDLE, new ItemStack(Items.SADDLE));
+            }
+        }
+
         if (this.level().isClientSide && getArmorProgress() > 0 && this.inventory.getItem(INV_SLOT_ARMOR).getItem().asItem() == Items.AIR.asItem()) {
             this.inventory.setItem(INV_SLOT_ARMOR, getArmor());
         }
+
+        // MOVIDO PARA ANTES: Atualizar posições das partes ANTES de qualquer validação
+        setOldPosAndRots();
+        updatePartPositions();
 
         if (stationaryTicks>0){
             stopMoving();
@@ -1259,7 +1355,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         if(!this.isEyeInFluidType(Fluids.WATER.getFluidType()))
             mouthTarget = 1;
 
-        if(!isSaddled() && !level().isClientSide){
+        if(!isSaddled() && !level().isClientSide && tickCount > 20){
             if(!getPassengers().isEmpty()) {
                 if (!getInventory().getItem(INV_SLOT_CROWN).isEmpty()) {
                     spawnAtLocation(getInventory().getItem(INV_SLOT_CROWN));
@@ -1268,7 +1364,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 ejectPassengers();
             }
         }
-        else {
+        else if (tickCount > 20){
             if(getArmorProgress() < 0.45f && getInventory().getItem(INV_SLOT_ARMOR).getCount() < 64 && !level().isClientSide) {
                 if (!getInventory().getItem(INV_SLOT_CROWN).isEmpty()) {
                     spawnAtLocation(getInventory().getItem(INV_SLOT_CROWN));
@@ -1278,9 +1374,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
 
-        setOldPosAndRots();
-
-        updatePartPositions();
+        // MOVIDO: rotatePassengers agora vem DEPOIS de updatePartPositions
         rotatePassengers();
 
         if(this.getSubEntities()[1].isEyeInFluidType(Fluids.WATER.getFluidType()) && this.tickCount % 80 == 0)
@@ -1290,30 +1384,17 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             mouthTarget = 0.8f;
         }
 
-//        for (int i = 0; i < getSubEntities().length; i++) {
-//            //if (part.getDeltaMovement().length() > 0) {
-//            moveEntitiesOnTop(i);
-//            //}
-//        }
-
         updateMouthOpening();
-//        if (!level().isClientSide && getControllingPassenger() instanceof Player player) {
-//            setYRot(Mth.rotLerp(0.8f, getYRot(), getYRot() - player.xxa));
-//        }
+        
         if (getControllingPassenger() instanceof Player player) {
             if(player.xxa != 0)
                 setYRot(Mth.rotLerp(0.8f, getYRot(), getYRot() - player.xxa));
         }
-//        if(this.getControllingPassenger() instanceof Player){
-//            //if(this.level().isClientSide){
-//               // System.out.println(newRotY);
-//                //System.out.println(this.entityData.get(DATA_Y_ROT));
-//                this.setYRot(Mth.rotLerp(0.8f, this.getYRot(), newRotY));
-//            //}
-//        }
+
         if (this.tickCount % 80 == 0)
             mouthTarget = 0;
 
+        // MODIFICADO: Validar DEPOIS de calcular assentos
         if (this.tickCount % 20 == 0)
             validateAssignments();
 
@@ -1322,23 +1403,9 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         yHeadRot = yBodyRot + (partYRot[0] - partYRot[4]) * 1.5f;
 
+        // MODIFICADO: Usar método calculateSeats
         if (isTamed() && partPosition!=null && partYRot!=null && partXRot!=null){
-            seats[0] = partPosition[0].add((seatOffsets[0]).xRot(partXRot[1] * Mth.DEG_TO_RAD).yRot(-partYRot[1] * Mth.DEG_TO_RAD));
-            seats[1] = partPosition[0].add((seatOffsets[1]).xRot(partXRot[1] * Mth.DEG_TO_RAD).yRot(-partYRot[1] * Mth.DEG_TO_RAD));
-            seats[2] = partPosition[2].add((seatOffsets[2]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
-            seats[3] = partPosition[2].add((seatOffsets[3]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
-            seats[4] = partPosition[2].add((seatOffsets[4]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
-            seats[5] = partPosition[2].add((seatOffsets[5]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
-            seats[6] = partPosition[4].add((seatOffsets[6]).xRot(partXRot[4] * Mth.DEG_TO_RAD).yRot(-partYRot[4] * Mth.DEG_TO_RAD));
-
-
-            oldSeats[0] = oldPartPosition[0].add((seatOffsets[0]).xRot(oldPartXRot[1] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[1] * Mth.DEG_TO_RAD));
-            oldSeats[1] = oldPartPosition[0].add((seatOffsets[1]).xRot(oldPartXRot[1] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[1] * Mth.DEG_TO_RAD));
-            oldSeats[2] = oldPartPosition[2].add((seatOffsets[2]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
-            oldSeats[3] = oldPartPosition[2].add((seatOffsets[3]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
-            oldSeats[4] = oldPartPosition[2].add((seatOffsets[4]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
-            oldSeats[5] = oldPartPosition[2].add((seatOffsets[5]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
-            oldSeats[6] = oldPartPosition[4].add((seatOffsets[6]).xRot(oldPartXRot[4] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[4] * Mth.DEG_TO_RAD));
+            calculateSeats();
         }
 
         if(!level().isClientSide){
@@ -1373,7 +1440,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                     for (int side : new int[]{-1, 1}) {
                         if(i == 2)
                             offset = 4;
-                        Vec3 particlePos = partPosition[i].add(new Vec3((offset + subEntities[i].getSize().width / 2)*side, 0, subEntities[i].getSize().width / 2).yRot(partYRot[i]));
+                        Vec3 particlePos = partPosition[i].add(new Vec3((offset + subEntities[i].getBbWidth() / 2)*side, 0, subEntities[i].getBbWidth() / 2).yRot(partYRot[i]));
                         double x = particlePos.x;
                         double y = particlePos.y;
                         double z = particlePos.z;
@@ -1386,6 +1453,27 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 }
             }
         }
+    }
+    
+    // NOVO MÉTODO: Calcular posições dos assentos
+    private void calculateSeats() {
+        if (partPosition == null || partYRot == null || partXRot == null) return;
+        
+        seats[0] = partPosition[0].add((seatOffsets[0]).xRot(partXRot[1] * Mth.DEG_TO_RAD).yRot(-partYRot[1] * Mth.DEG_TO_RAD));
+        seats[1] = partPosition[0].add((seatOffsets[1]).xRot(partXRot[1] * Mth.DEG_TO_RAD).yRot(-partYRot[1] * Mth.DEG_TO_RAD));
+        seats[2] = partPosition[2].add((seatOffsets[2]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
+        seats[3] = partPosition[2].add((seatOffsets[3]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
+        seats[4] = partPosition[2].add((seatOffsets[4]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
+        seats[5] = partPosition[2].add((seatOffsets[5]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
+        seats[6] = partPosition[4].add((seatOffsets[6]).xRot(partXRot[4] * Mth.DEG_TO_RAD).yRot(-partYRot[4] * Mth.DEG_TO_RAD));
+
+        oldSeats[0] = oldPartPosition[0].add((seatOffsets[0]).xRot(oldPartXRot[1] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[1] * Mth.DEG_TO_RAD));
+        oldSeats[1] = oldPartPosition[0].add((seatOffsets[1]).xRot(oldPartXRot[1] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[1] * Mth.DEG_TO_RAD));
+        oldSeats[2] = oldPartPosition[2].add((seatOffsets[2]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
+        oldSeats[3] = oldPartPosition[2].add((seatOffsets[3]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
+        oldSeats[4] = oldPartPosition[2].add((seatOffsets[4]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
+        oldSeats[5] = oldPartPosition[2].add((seatOffsets[5]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
+        oldSeats[6] = oldPartPosition[4].add((seatOffsets[6]).xRot(oldPartXRot[4] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[4] * Mth.DEG_TO_RAD));
     }
 
     public boolean hasAnchorDown() {
@@ -1613,8 +1701,21 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         };
 
         if (prevPartPositions[0] == null) {
+            float yawRadInit = -this.getYRot() * Mth.DEG_TO_RAD;
+            float pitchRadInit = this.getXRot() * Mth.DEG_TO_RAD;
             for (int i = 0; i < prevPartPositions.length; i++) {
-                prevPartPositions[i] = position();
+                // Determine initial offset based on index (matching baseOffsets definition)
+                Vec3 initBaseOffset = switch(i) {
+                     case 0 -> new Vec3(0, 0, 6);
+                     case 1 -> new Vec3(0, 0, 2.5);
+                     case 2 -> new Vec3(0, 0, -2.25);
+                     case 3 -> new Vec3(0, 0, -7);
+                     case 4 -> new Vec3(0, 0, -11);
+                     default -> Vec3.ZERO;
+                };
+                
+                Vec3 rotatedOffset = initBaseOffset.yRot(yawRadInit).xRot(pitchRadInit);
+                prevPartPositions[i] = this.position().add(rotatedOffset);
             }
         }
 
@@ -1744,6 +1845,8 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     public boolean canAddPassenger(Entity passenger) {
         return (getPassengers().size() < 7);
     }
+
+    // MODIFICADO: Melhorar positionRider para lidar com assentos não inicializados
     @Override
     protected void positionRider(Entity passenger, Entity.MoveFunction callback) {
         if (!this.hasPassenger(passenger)) return;
@@ -1751,26 +1854,24 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         int seatIndex = getSeatByEntity(passenger);
         if (seatIndex == -1) {
             return;
-            //getEntityByUUID(this.entityData.get(getSeatAccessor(-1)).get()).unRide();
-//            seatIndex = findFreeSeat();
-//            if (seatIndex != -1) {
-//                this.entityData.set(getSeatAccessor(seatIndex), Optional.of(passenger.getUUID()));
-//            } else {
-//                passenger.unRide();
-//                return;
-//            }
         }
 
         float yOffset = 0;
         if(this.getArmorProgress() == 0)
             yOffset = 0.5F;
 
-        if (seatIndex < seats.length) {
-            if(seats[seatIndex] != null)
-                callback.accept(passenger,
-                        seats[seatIndex].x,
-                        seats[seatIndex].y - yOffset + passenger.getMyRidingOffset(),
-                        seats[seatIndex].z);
+        // NOVO: Verificar se os assentos foram calculados
+        if (seatIndex < seats.length && seats[seatIndex] != null) {
+            callback.accept(passenger,
+                    seats[seatIndex].x,
+                    seats[seatIndex].y - yOffset,
+                    seats[seatIndex].z);
+        } else {
+            // FALLBACK: Usar posição da entidade principal se assentos não foram calculados
+            callback.accept(passenger,
+                    this.getX(),
+                    this.getY() + 5.0 - yOffset,
+                    this.getZ());
         }
     }
 
@@ -1785,23 +1886,24 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         AttributeInstance inst = this.getAttribute(getSwimSpeed());
         if (inst != null) {
-            AttributeModifier old = inst.getModifier(SAIL_SPEED_MODIFIER_UUID);
+            AttributeModifier old = inst.getModifier(SAIL_SPEED_MODIFIER_ID);
             if (old != null) {
-                inst.removeModifier(old);
+                inst.removeModifier(SAIL_SPEED_MODIFIER_ID);
             }
             if (speedModifier != 0.0) {
+            if (speedModifier != 0.0) {
                 inst.addPermanentModifier(new AttributeModifier(
-                        SAIL_SPEED_MODIFIER_UUID,
-                        Whaleborne.MODID + ":sail_speed_modifier",
+                        SAIL_SPEED_MODIFIER_ID,
                         speedModifier,
-                        AttributeModifier.Operation.ADDITION
+                        AttributeModifier.Operation.ADD_VALUE
                 ));
+            }
             }
         }
     }
 
-    public static Attribute getSwimSpeed() {
-        return ForgeMod.SWIM_SPEED.isPresent() ? ForgeMod.SWIM_SPEED.get() : Attributes.MOVEMENT_SPEED;
+    public static Holder<Attribute> getSwimSpeed() {
+        return NeoForgeMod.SWIM_SPEED;
     }
 
     public int getSeatByEntity(Entity entity){
@@ -1848,8 +1950,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     public void assignSeat(int seatIndex, @Nullable Entity passenger) {
         this.entityData.set(getSeatAccessor(seatIndex), Optional.of(passenger.getUUID()));
         if (this.level() instanceof ServerLevel) {
-            PacketDistributor.TRACKING_ENTITY.with(() -> this)
-                    .send(new ClientboundSetPassengersPacket(this));
+            ((ServerLevel) this.level()).getChunkSource().broadcast(this, new ClientboundSetPassengersPacket(this));
         }
     }
 
@@ -1890,8 +1991,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         //    }
             // Sync immediately
             if (this.level() instanceof ServerLevel) {
-                 PacketDistributor.TRACKING_ENTITY.with(() -> this)
-                        .send(new ClientboundSetPassengersPacket(this));
+                 ((ServerLevel) this.level()).getChunkSource().broadcast(this, new ClientboundSetPassengersPacket(this));
             }
         }
 //        if (!seatAssignments.containsValue(passenger.getUUID())) {
@@ -2007,8 +2107,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
     private void syncMovement() {
         if (!this.level().isClientSide) {
-            PacketDistributor.TRACKING_ENTITY.with(() -> this)
-                    .send(new ClientboundSetEntityMotionPacket(this.getId(), this.getDeltaMovement()));
+            ((ServerLevel) this.level()).getChunkSource().broadcast(this, new ClientboundSetEntityMotionPacket(this.getId(), this.getDeltaMovement()));
         }
     }
 
@@ -2060,7 +2159,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     }
     private void openHullbackMenu(Player player) {
         if (!level().isClientSide && player instanceof ServerPlayer serverPlayer && serverPlayer.getRootVehicle() instanceof HullbackEntity) {
-            NetworkHooks.openScreen(serverPlayer, new MenuProvider() {
+            serverPlayer.openMenu(new MenuProvider() {
                 @Override
                 public Component getDisplayName() {
                     return HullbackEntity.this.getDisplayName();
@@ -2207,7 +2306,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         private boolean isSwimmablePos(PathfinderMob entity, Vec3 targetPos) {
             return entity.level().getBlockState(BlockPos.containing(targetPos))
-                    .isPathfindable(entity.level(), BlockPos.containing(targetPos), PathComputationType.WATER);
+                    .isPathfindable(PathComputationType.WATER);
         }
     }
     public class HullbackBreathAirGoal extends Goal {

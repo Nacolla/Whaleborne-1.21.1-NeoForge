@@ -1,42 +1,37 @@
 package com.fruityspikes.whaleborne.network;
 
 import com.fruityspikes.whaleborne.Whaleborne;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraftforge.network.NetworkRegistry;
-import net.minecraftforge.network.simple.SimpleChannel;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
+import net.neoforged.fml.common.EventBusSubscriber;
+
+@EventBusSubscriber(modid = Whaleborne.MODID, bus = EventBusSubscriber.Bus.MOD)
 public class WhaleborneNetwork {
-    private static final String PROTOCOL_VERSION = "1";
-    public static final SimpleChannel INSTANCE = NetworkRegistry.ChannelBuilder.named(
-                    new ResourceLocation(Whaleborne.MODID, "network"))
-            .clientAcceptedVersions(PROTOCOL_VERSION::equals)
-            .serverAcceptedVersions(PROTOCOL_VERSION::equals)
-            .networkProtocolVersion(() -> PROTOCOL_VERSION)
-            .simpleChannel();
 
-    protected static int packetID = 0;
+    @SubscribeEvent
+    public static void register(RegisterPayloadHandlersEvent event) {
+        final PayloadRegistrar registrar = event.registrar(Whaleborne.MODID)
+                .versioned("1");
 
-    public static void init() {
-        INSTANCE.registerMessage(getPacketID(),
-                CannonFirePacket.class,
-                CannonFirePacket::encode,
-                CannonFirePacket::decode,
-                CannonFirePacket::handle);
+        registrar.playToServer(
+                CannonFirePayload.TYPE,
+                CannonFirePayload.STREAM_CODEC,
+                CannonFirePayload::handle
+        );
 
-        INSTANCE.registerMessage(getPacketID(),
-                SyncHullbackDirtPacket.class,
-                SyncHullbackDirtPacket::encode,
-                SyncHullbackDirtPacket::decode,
-                SyncHullbackDirtPacket::handle);
+        registrar.playToClient(
+                SyncHullbackDirtPayload.TYPE,
+                SyncHullbackDirtPayload.STREAM_CODEC,
+                SyncHullbackDirtPayload::handle
+        );
 
-        INSTANCE.registerMessage(getPacketID(),
-                HullbackHurtPacket.class,
-                HullbackHurtPacket::encode,
-                HullbackHurtPacket::decode,
-                HullbackHurtPacket::handle);
-    }
-
-    public static int getPacketID() {
-        return packetID++;
+        registrar.playToClient(
+                HullbackHurtPayload.TYPE,
+                HullbackHurtPayload.STREAM_CODEC,
+                HullbackHurtPayload::handle
+        );
     }
 }

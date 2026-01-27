@@ -6,12 +6,12 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.state.BlockState;
 
 public class ClientPacketHandler {
-    public static void handleDirtSync(SyncHullbackDirtPacket packet) {
-        Entity entity = Minecraft.getInstance().level.getEntity(packet.getEntityId());
+    public static void handleDirtSync(SyncHullbackDirtPayload payload) {
+        Entity entity = Minecraft.getInstance().level.getEntity(payload.entityId());
         if (entity instanceof HullbackEntity hullback) {
-            BlockState[][] dirtArray = SyncHullbackDirtPacket.deserializeDirtArray(packet.getDirtData());
+            BlockState[][] dirtArray = SyncHullbackDirtPayload.deserializeDirtArray(payload.dirtData());
 
-            switch (packet.getArrayType()) {
+            switch (payload.arrayType()) {
                 case 0 -> hullback.headDirt = dirtArray;
                 case 1 -> hullback.headTopDirt = dirtArray;
                 case 2 -> hullback.bodyDirt = dirtArray;
@@ -22,18 +22,18 @@ public class ClientPacketHandler {
         }
     }
 
-    public static void handleHullbackHurtSync(HullbackHurtPacket packet) {
+    public static void handleHullbackHurtSync(HullbackHurtPayload payload) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level != null) {
-            Entity entity = minecraft.level.getEntity(packet.getEntityId());
+            Entity entity = minecraft.level.getEntity(payload.entityId());
             if (entity instanceof HullbackEntity whale) {
 
-                whale.inventory.setItem(HullbackEntity.INV_SLOT_ARMOR, packet.getArmorItem());
-                whale.inventory.setItem(HullbackEntity.INV_SLOT_CROWN, packet.getCrownItem());
+                whale.inventory.setItem(HullbackEntity.INV_SLOT_ARMOR, payload.armorItem());
+                whale.inventory.setItem(HullbackEntity.INV_SLOT_CROWN, payload.crownItem());
 
-                whale.getEntityData().set(HullbackEntity.DATA_ARMOR, packet.getArmorItem());
-                whale.getEntityData().set(HullbackEntity.DATA_CROWN_ID, packet.getCrownItem());
-                whale.getEntityData().set(HullbackEntity.DATA_ID_FLAGS, packet.getFlags());
+                whale.getEntityData().set(HullbackEntity.DATA_ARMOR, payload.armorItem());
+                whale.getEntityData().set(HullbackEntity.DATA_CROWN_ID, payload.crownItem());
+                whale.getEntityData().set(HullbackEntity.DATA_ID_FLAGS, payload.flags());
 
                 whale.updateContainerEquipment();
             }

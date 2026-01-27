@@ -4,6 +4,7 @@ import com.fruityspikes.whaleborne.server.registries.WBItemRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.decoration.HangingEntity;
 import net.minecraft.world.item.ItemStack;
@@ -59,7 +60,7 @@ public class HullbackWalkableEntity extends Entity {
         return true;// this.getMovementEmission().emitsAnything();
     }
     @Override
-    protected void defineSynchedData() {}
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {}
     @Override
     protected void readAdditionalSaveData(CompoundTag compoundTag) {}
     @Override

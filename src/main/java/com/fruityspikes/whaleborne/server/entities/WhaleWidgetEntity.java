@@ -37,10 +37,10 @@ public abstract class WhaleWidgetEntity extends Entity {
         this.item = dropItem;
     }
     @Override
-    protected void defineSynchedData() {
-        this.entityData.define(DATA_ID_HURT, 0);
-        this.entityData.define(DATA_ID_HURTDIR, 1);
-        this.entityData.define(DATA_ID_DAMAGE, 0.0F);
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        builder.define(DATA_ID_HURT, 0);
+        builder.define(DATA_ID_HURTDIR, 1);
+        builder.define(DATA_ID_DAMAGE, 0.0F);
     }
 
     public void setDamage(float damageTaken) {

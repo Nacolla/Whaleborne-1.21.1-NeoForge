@@ -31,9 +31,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class AnchorRenderer extends WhaleWidgetRenderer {
-    public static final ResourceLocation TEXTURE = new ResourceLocation(Whaleborne.MODID, "textures/entity/anchor.png");
-    public static final ResourceLocation CHAIN = new ResourceLocation(Whaleborne.MODID, "textures/entity/chain.png");
-    public static final ResourceLocation ANCHOR_HEAD_TEXTURE = new ResourceLocation(Whaleborne.MODID, "textures/entity/anchor_head.png");
+    public static final ResourceLocation TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/anchor.png");
+    public static final ResourceLocation CHAIN = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/chain.png");
+    public static final ResourceLocation ANCHOR_HEAD_TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/anchor_head.png");
     private final AnchorHeadModel anchorHeadModel;
 
     public AnchorRenderer(EntityRendererProvider.Context context) {
@@ -74,66 +74,47 @@ public class AnchorRenderer extends WhaleWidgetRenderer {
                 vertexConsumer,
                 (int) (packedLight / 2),
                 OverlayTexture.NO_OVERLAY,
-                1.0F, 1.0F, 1.0F, 1.0F
+                -1
         );
 
         poseStack.popPose();
     }
 
-    // stolen from specie
+    // stolen from specie (and restored)
     public void renderChain(AnchorEntity anchor, PoseStack poseStack, float partialTick, MultiBufferSource buffer, int packedLight, boolean left){
         poseStack.pushPose();
+        
+        VertexConsumer vertexConsumer = buffer.getBuffer(RenderType.entityCutoutNoCull(CHAIN));
+        org.joml.Matrix4f matrix = poseStack.last().pose();
 
-        PoseStack.Pose pose = poseStack.last();
-
-        VertexConsumer builder = buffer.getBuffer(RenderType.entityCutoutNoCull(CHAIN));
-        Vec3 base = Vec3.ZERO.add(0, 1,0);
+        // Simple line drawing as quad
+        Vec3 base = Vec3.ZERO.add(0, 1, 0);
 
         Vec3 entityPos = anchor.position();
-        Vec3 tip = new Vec3(entityPos.subtract(anchor.getHeadPos().getX(), anchor.getHeadPos().getY(), anchor.getHeadPos().getZ()).toVector3f()).add(0, -2,0).multiply(-1, -1, -1);;
+        Vec3 tip = new Vec3(entityPos.subtract(anchor.getHeadPos().getX(), anchor.getHeadPos().getY(), anchor.getHeadPos().getZ()).toVector3f()).add(0, -2, 0).multiply(-1, -1, -1);
+
+
 
         Vec3 direction = tip.subtract(base);
-
         Vec3 dirNorm = direction.normalize();
         Vec3 up = Math.abs(dirNorm.y) < 0.9 ? new Vec3(0, 1, 0) : new Vec3(1, 0, 0);
         Vec3 right = dirNorm.cross(up).normalize().scale(0.3);
         Vec3 side = dirNorm.cross(right).normalize().scale(0.3);
         Vec3 dir = left ? right : side;
         float length = (float) direction.length();
-
-        builder.vertex(pose.pose(), (float) (base.x + dir.x), (float) (base.y + dir.y), (float) (base.z + dir.z))
-                .color(1F, 1F, 1F, 1F)
-                .uv(left ? 0 : 0.5f, 0F)
-                .overlayCoords(OverlayTexture.NO_OVERLAY)
-                .uv2(packedLight)
-                .normal(pose.normal(), 0, 1, 0)
-                .endVertex();
-
-        builder.vertex(pose.pose(), (float) (base.x - dir.x), (float) (base.y - dir.y), (float) (base.z - dir.z))
-                .color(1F, 1F, 1F, 1F)
-                .uv(left ? 0.5f : 1, 0F)
-                .overlayCoords(OverlayTexture.NO_OVERLAY)
-                .uv2(packedLight)
-                .normal(pose.normal(), 0, 1, 0)
-                .endVertex();
-
-        builder.vertex(pose.pose(), (float) (tip.x - dir.x), (float) (tip.y - dir.y), (float) (tip.z - dir.z))
-                .color(1F, 1F, 1F, 1F)
-                .uv(left ? 0.5f : 1, length)
-                .overlayCoords(OverlayTexture.NO_OVERLAY)
-                .uv2((int) (packedLight / 2))
-                .normal(pose.normal(), 0, 1, 0)
-                .endVertex();
-
-        builder.vertex(pose.pose(), (float) (tip.x + dir.x), (float) (tip.y + dir.y), (float) (tip.z + dir.z))
-                .color(1F, 1F, 1F, 1F)
-                .uv(left ? 0 : 0.5f, length)
-                .overlayCoords(OverlayTexture.NO_OVERLAY)
-                .uv2((int) (packedLight / 2))
-                .normal(pose.normal(), 0, 1, 0)
-                .endVertex();
+        
+        addVertex(vertexConsumer, matrix, (float) (base.x + dir.x), (float) (base.y + dir.y), (float) (base.z + dir.z), left ? 0 : 0.5f, 0, 1f, 1f, 1f, 1f, packedLight, OverlayTexture.NO_OVERLAY, 0, 1, 0);
+        addVertex(vertexConsumer, matrix, (float) (base.x - dir.x), (float) (base.y - dir.y), (float) (base.z - dir.z), left ? 0.5f : 1, 0, 1f, 1f, 1f, 1f, packedLight, OverlayTexture.NO_OVERLAY, 0, 1, 0);
+        addVertex(vertexConsumer, matrix, (float) (tip.x - dir.x), (float) (tip.y - dir.y), (float) (tip.z - dir.z), left ? 0.5f : 1, length, 1f, 1f, 1f, 1f, packedLight / 2, OverlayTexture.NO_OVERLAY, 0, 1, 0);
+        addVertex(vertexConsumer, matrix, (float) (tip.x + dir.x), (float) (tip.y + dir.y), (float) (tip.z + dir.z), left ? 0 : 0.5f, length, 1f, 1f, 1f, 1f, packedLight / 2, OverlayTexture.NO_OVERLAY, 0, 1, 0);
 
         poseStack.popPose();
+    }
+    
+    private void addVertex(VertexConsumer builder, org.joml.Matrix4f matrix, float x, float y, float z, float u, float v, float r, float g, float b, float a, int light, int overlay, float nx, float ny, float nz) {
+        org.joml.Vector4f vector = new org.joml.Vector4f(x, y, z, 1.0F);
+        vector.mul(matrix);
+        builder.addVertex(vector.x, vector.y, vector.z).setColor(r, g, b, a).setUv(u, v).setOverlay(overlay).setLight(light).setNormal(nx, ny, nz);
     }
     @Override
     public ResourceLocation getTextureLocation(WhaleWidgetEntity whaleWidgetEntity) {
@@ -148,5 +129,8 @@ public class AnchorRenderer extends WhaleWidgetRenderer {
             }
         }
         return super.shouldRender(livingEntity, camera, camX, camY, camZ);
+    }
+    private VertexConsumer vertex(VertexConsumer builder, org.joml.Matrix4f matrix, float x, float y, float z) {
+        return builder.addVertex(matrix, x, y, z);
     }
 }

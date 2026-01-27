@@ -5,6 +5,6 @@
   "removable_with": ["shears"],
   "drop": "minecraft:seagrass",
   "drop_amount": 2,
-  "sound_on_growth": "minecraft:block.seagrass.place",
-  "sound_on_remove": "minecraft:block.seagrass.break"
+  "sound_on_growth": "minecraft:block.wet_grass.place",
+  "sound_on_remove": "minecraft:block.wet_grass.break"
 }

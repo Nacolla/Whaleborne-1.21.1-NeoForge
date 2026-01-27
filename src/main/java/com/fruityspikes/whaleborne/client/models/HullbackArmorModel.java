@@ -3,6 +3,7 @@ package com.fruityspikes.whaleborne.client.models;
 import com.fruityspikes.whaleborne.server.entities.HullbackEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
@@ -14,6 +15,7 @@ public class HullbackArmorModel<T extends HullbackEntity> extends EntityModel<T>
     private final ModelPart fluke;
 
     public HullbackArmorModel(ModelPart root) {
+        super(RenderType::entityCutoutNoCull);
         this.head = root.getChild("head");
         this.body = root.getChild("body");
         this.fluke = root.getChild("fluke");
@@ -64,10 +66,10 @@ public class HullbackArmorModel<T extends HullbackEntity> extends EntityModel<T>
 
     }
     @Override
-    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, float red, float green, float blue, float alpha) {
-        head.render(poseStack, vertexConsumer, packedLight, packedOverlay, red, green, blue, alpha);
-        body.render(poseStack, vertexConsumer, packedLight, packedOverlay, red, green, blue, alpha);
-        fluke.render(poseStack, vertexConsumer, packedLight, packedOverlay, red, green, blue, alpha);
+    public void renderToBuffer(PoseStack poseStack, VertexConsumer vertexConsumer, int packedLight, int packedOverlay, int color) {
+        head.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
+        body.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
+        fluke.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
     }
 
 
