@@ -18,9 +18,9 @@ public class HullbackScreen extends AbstractContainerScreen<HullbackMenu> {
     private static final ResourceLocation TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/gui/hullback.png");
     private static final ResourceLocation STEEN = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/gui/steen.png");
     private static final ResourceLocation MOBIUS = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/gui/mobius.png");
-    private static final ResourceLocation HEART_CONTAINER = ResourceLocation.withDefaultNamespace("hud/heart/container");
-    private static final ResourceLocation HEART_FULL = ResourceLocation.withDefaultNamespace("hud/heart/full");
-    private static final ResourceLocation HEART_HALF = ResourceLocation.withDefaultNamespace("hud/heart/half");
+    private static final ResourceLocation HEART_CONTAINER = ResourceLocation.withDefaultNamespace("hud/heart/vehicle_container");
+    private static final ResourceLocation HEART_FULL = ResourceLocation.withDefaultNamespace("hud/heart/vehicle_full");
+    private static final ResourceLocation HEART_HALF = ResourceLocation.withDefaultNamespace("hud/heart/vehicle_half");
     private static final ResourceLocation ARMOR_EMPTY = ResourceLocation.withDefaultNamespace("hud/armor_empty");
     private static final ResourceLocation ARMOR_FULL = ResourceLocation.withDefaultNamespace("hud/armor_full");
     private static final ResourceLocation ARMOR_HALF = ResourceLocation.withDefaultNamespace("hud/armor_half");
