@@ -805,7 +805,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
 
-        playSound(WBSoundRegistry.HULLBACK_AMBIENT.get(), Config.SOUND_DISTANCE.get().floatValue(), 1);
+        playSound(WBSoundRegistry.HULLBACK_AMBIENT.get(), 3.0f, 1);
     }
 
     @Override

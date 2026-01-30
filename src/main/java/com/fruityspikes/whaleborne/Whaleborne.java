@@ -69,7 +69,6 @@ public class Whaleborne
         modEventBus.addListener(this::addCreative);
         modEventBus.addListener(this::registerSpawnPlacements);
         modContainer.registerConfig(ModConfig.Type.CLIENT, Config.CLIENT_SPEC);
-        modContainer.registerConfig(ModConfig.Type.COMMON, Config.COMMON_SPEC);
     }
     private void commonSetup(final FMLCommonSetupEvent event)
     {
