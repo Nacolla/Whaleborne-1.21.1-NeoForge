@@ -24,8 +24,8 @@ import net.minecraft.util.RandomSource;
 @EventBusSubscriber(modid = Whaleborne.MODID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.GAME)
 public class ClientAudioHandler {
 
-    // Only intercept the ambient sound
-    private static final String AMBIENT_SOUND_PATH = "entity.hullback.ambient";
+    // Intercept all hullback entity sounds that used SOUND_DISTANCE
+    private static final String SOUND_PREFIX = "entity.hullback.";
 
     @SubscribeEvent
     public static void onPlaySound(PlaySoundEvent event) {
@@ -34,11 +34,13 @@ public class ClientAudioHandler {
         
         ResourceLocation soundLocation = original.getLocation();
         
-        // Only process the hullback ambient sound from our mod
+        // Only process sounds from our mod
         if (!soundLocation.getNamespace().equals(Whaleborne.MODID)) {
             return;
         }
-        if (!soundLocation.getPath().equals(AMBIENT_SOUND_PATH)) {
+        
+        // Only process hullback entity sounds (ambient, breathe, hurt, etc.)
+        if (!soundLocation.getPath().startsWith(SOUND_PREFIX)) {
             return;
         }
         

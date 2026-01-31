@@ -3,6 +3,7 @@ package com.fruityspikes.whaleborne.server.registries;
 import com.fruityspikes.whaleborne.Whaleborne;
 import com.fruityspikes.whaleborne.server.entities.*;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.EntityAttachment;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -21,6 +22,8 @@ public class WBEntityRegistry {
             "hullback", () ->
                     EntityType.Builder.of(HullbackEntity::new, WBMobCategories.HULLBACK)
                             .sized(2F, 2F)
+                            .eyeHeight(2.0f)  // Eye position above deck level
+                            .attach(EntityAttachment.NAME_TAG, 0.0f, 7.0F, 0.0f)  // Name tag just above hitbox
                             .clientTrackingRange(128)
                             .setShouldReceiveVelocityUpdates(true)
                             .build(ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "hullback").toString())
@@ -28,7 +31,7 @@ public class WBEntityRegistry {
     public static final DeferredHolder<EntityType<?>, EntityType<HullbackWalkableEntity>> HULLBACK_PLATFORM = ENTITY_TYPES.register(
             "hullback_platform", () ->
                     EntityType.Builder.of(HullbackWalkableEntity::new, MobCategory.MISC)
-                            .sized(6F, 0.5F)
+                            .sized(5.5F, 0.5F)
                             .clientTrackingRange(128)
                             .setShouldReceiveVelocityUpdates(true)
                             .build(ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "hullback_platform").toString())

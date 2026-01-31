@@ -19,6 +19,7 @@ public class HullbackWalkableEntity extends Entity {
         super(entityType, level);
     }
 
+    /*
     protected void recalculateBoundingBox() {
         double x = this.getX();
         double y = this.getY();
@@ -34,6 +35,8 @@ public class HullbackWalkableEntity extends Entity {
             ));
         }
     }
+    */
+   
     public void tick() {
         super.tick();
         if (this.tickCount % 200 == 0) {

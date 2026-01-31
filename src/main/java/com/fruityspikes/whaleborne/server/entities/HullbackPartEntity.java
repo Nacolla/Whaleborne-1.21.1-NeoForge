@@ -2,7 +2,6 @@ package com.fruityspikes.whaleborne.server.entities;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.SynchedEntityData;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.Pose;
 import com.fruityspikes.whaleborne.server.items.WhaleEquipment;
@@ -17,7 +16,6 @@ import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
@@ -72,6 +70,24 @@ public class HullbackPartEntity extends PartEntity<HullbackEntity> {
     @Override
     public EntityDimensions getDimensions(Pose pose) {
         return this.size;
+    }
+
+    @Nullable
+    public ItemStack getPickResult() {
+        return this.getParent().getPickResult();
+    }
+
+    public boolean is(Entity entity) {
+        return this == entity || this.getParent() == entity;
+    }
+
+    public boolean isPushable() {
+        return false;
+    }
+
+    @Override
+    public boolean canBeCollidedWith() {
+        return true;
     }
 
     public void tick() {
@@ -166,5 +182,3 @@ public class HullbackPartEntity extends PartEntity<HullbackEntity> {
         return result.consumesAction() ? result : getParent().interact(player, hand);
     }
 }
-
-
