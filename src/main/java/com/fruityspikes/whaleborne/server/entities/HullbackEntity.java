@@ -204,7 +204,6 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         this.stationaryTicks = 60;
     }
 
-
     @Override
     public boolean checkSpawnRules(LevelAccessor level, MobSpawnType spawnReason) {
         return checkHullbackSpawnRules((EntityType<HullbackEntity>) this.getType(), level, spawnReason, this.blockPosition(), level.getRandom());
@@ -265,7 +264,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
 
 
-    // NOVO: Método para garantir sincronização
+    // NEW: Method to guarantee synchronization
     public void forceEquipmentSync() {
         if (!this.level().isClientSide) {
             this.entityData.set(DATA_ARMOR, this.inventory.getItem(INV_SLOT_ARMOR).copy());
@@ -431,12 +430,12 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         ItemStack saddle = this.inventory.getItem(INV_SLOT_SADDLE);
         boolean hasSaddle = !saddle.isEmpty();
         
-        // MODIFICADO: Criar cópias para evitar problemas de referência
+        // MODIFIED: Create copies to avoid reference problems
         this.entityData.set(DATA_CROWN_ID, crown.isEmpty() ? ItemStack.EMPTY : crown.copy());
         this.entityData.set(DATA_ARMOR, armor.isEmpty() ? ItemStack.EMPTY : armor.copy());
         this.setFlag(4, hasSaddle);
         
-        // NOVO: Sincronizar imediatamente se no servidor
+        // NEW: Sync immediately if on server
         if (!this.level().isClientSide) {
             sendHurtSyncPacket();
         }
@@ -531,9 +530,9 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 Whaleborne.LOGGER.info("Saving item at slot {}: {}", i, itemstack);
                 
                 try {
-                    // CORREÇÃO: Em 1.21+, itemstack.save retorna a tag populada/nova, 
-                    // não necessariamente muta a passada da mesma forma que antes ou requer uso do retorno.
-                    // Para garantir, vamos pegar o retorno.
+                    // FIX: In 1.21+, itemstack.save returns a populated/new tag,
+                    // does not necessarily mutate the passed one as before/requires using result.
+                    // To ensure precision, we capture the return.
                     Tag savedTag = itemstack.save(this.registryAccess());
                     if (savedTag instanceof CompoundTag itemTag) {
                         itemTag.putByte("Slot", (byte)i);
@@ -585,7 +584,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         
         Whaleborne.LOGGER.info("HullbackEntity.readAdditionalSaveData called for ID: {}", this.getId());
         
-        // CORREÇÃO: Inicialize o inventário ANTES de ler dados do NBT
+        // FIX: Initialize inventory BEFORE reading NBT data
         this.createInventory();
         
         ListTag items = compound.getList("Items", 10);
@@ -721,6 +720,8 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         return false;
     }
 
+
+
     public boolean isMultipartEntity() {
         return true;
     }
@@ -776,6 +777,11 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
         return false;
+    }
+
+    @Override
+    public boolean canBeCollidedWith() {
+        return true;
     }
 
     @Override
@@ -1231,7 +1237,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     public void onAddedToLevel() {
         super.onAddedToLevel();
         
-        // Inicializar posições das partes imediatamente
+        // Initialize part positions immediately
         if (prevPartPositions[0] == null) {
             for (int i = 0; i < prevPartPositions.length; i++) {
                 prevPartPositions[i] = position();
@@ -1240,17 +1246,17 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
 
-        // Calcular posições iniciais das partes
+        // Calculate initial part positions
         updatePartPositions();
 
-        // Calcular assentos iniciais
+        // Calculate initial seats
         if (isTamed()) {
             calculateSeats();
         }
         
-        // NOVO: Sincronizar equipamento ao adicionar ao mundo
+        // NEW: Sync equipment when adding to world
         if (!this.level().isClientSide) {
-            // Garantir que o inventário está correto
+            // Ensure inventory is correct
             ItemStack armor = this.inventory.getItem(INV_SLOT_ARMOR);
             ItemStack crown = this.inventory.getItem(INV_SLOT_CROWN);
             ItemStack saddle = this.inventory.getItem(INV_SLOT_SADDLE);
@@ -1262,10 +1268,10 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 this.entityData.set(DATA_CROWN_ID, crown.copy());
             }
             
-            // Atualizar flag da sela
+            // Update saddle flag
             this.setFlag(4, !saddle.isEmpty());
             
-            // Forçar sincronização
+            // Force synchronization
             this.updateContainerEquipment();
         }
     }
@@ -1274,11 +1280,11 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     public void tick() {
         super.tick();
         
-        // NOVO: Validação única após carregar do NBT
+        // NEW: Single validation after loading from NBT
         if (!this.level().isClientSide && !validatedAfterLoad && this.tickCount > 5) {
             validatedAfterLoad = true;
             
-            // Revalidar e sincronizar equipamento
+            // Revalidate and sync equipment
             ItemStack armor = this.inventory.getItem(INV_SLOT_ARMOR);
             ItemStack crown = this.inventory.getItem(INV_SLOT_CROWN);
             ItemStack saddle = this.inventory.getItem(INV_SLOT_SADDLE);
@@ -1287,7 +1293,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             this.entityData.set(DATA_CROWN_ID, crown.copy());
             this.setFlag(4, !saddle.isEmpty());
             
-            // Sincronizar para todos os clientes
+            // Sync to all clients
             sendHurtSyncPacket();
             syncDirtToClients();
         }
@@ -1296,7 +1302,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             this.entityData.set(DATA_ARMOR, this.inventory.getItem(INV_SLOT_ARMOR));
         }
 
-        // NOVO: No cliente, restaurar do entityData se necessário
+        // NEW: On client, restore from entityData if necessary
         if (this.level().isClientSide) {
             ItemStack armorInInventory = this.inventory.getItem(INV_SLOT_ARMOR);
             ItemStack armorInData = this.entityData.get(DATA_ARMOR);
@@ -1312,7 +1318,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 this.inventory.setItem(INV_SLOT_CROWN, crownInData.copy());
             }
             
-            // Verificar sela
+            // Check saddle
             boolean hasSaddleFlag = this.getFlag(4);
             ItemStack saddleInInventory = this.inventory.getItem(INV_SLOT_SADDLE);
             
@@ -1325,7 +1331,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             this.inventory.setItem(INV_SLOT_ARMOR, getArmor());
         }
 
-        // MOVIDO PARA ANTES: Atualizar posições das partes ANTES de qualquer validação
+        // MOVED TO BEFORE: Update part positions BEFORE any validation
         setOldPosAndRots();
         updatePartPositions();
 
@@ -1374,7 +1380,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
 
-        // MOVIDO: rotatePassengers agora vem DEPOIS de updatePartPositions
+        // MOVED: rotatePassengers now comes AFTER updatePartPositions
         rotatePassengers();
 
         if(this.getSubEntities()[1].isEyeInFluidType(Fluids.WATER.getFluidType()) && this.tickCount % 80 == 0)
@@ -1394,7 +1400,21 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         if (this.tickCount % 80 == 0)
             mouthTarget = 0;
 
-        // MODIFICADO: Validar DEPOIS de calcular assentos
+        // Anchor Physics (Smooth Proportional Control)
+        if (hasAnchorDown() && this.isInWater()) {
+             double targetY = this.level().getSeaLevel() - 5.0;
+             double currentY = this.getY();
+             double diff = targetY - currentY;
+             
+             // Proportional Control: Speed based on distance
+             // Gain 0.05: Smooth response
+             // Clamp -0.05 to 0.05: Limit speed to prevent abrupt movements
+             double smoothSpeed = Mth.clamp(diff * 0.05, -0.05, 0.05);
+             
+             this.setDeltaMovement(this.getDeltaMovement().x, smoothSpeed, this.getDeltaMovement().z);
+        }
+
+        // Validate assignments after seat calculation
         if (this.tickCount % 20 == 0)
             validateAssignments();
 
@@ -1403,7 +1423,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         yHeadRot = yBodyRot + (partYRot[0] - partYRot[4]) * 1.5f;
 
-        // MODIFICADO: Usar método calculateSeats
+        // Use calculateSeats method
         if (isTamed() && partPosition!=null && partYRot!=null && partXRot!=null){
             calculateSeats();
         }
@@ -1455,7 +1475,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         }
     }
     
-    // NOVO MÉTODO: Calcular posições dos assentos
+    // NEW METHOD: Calculate seat positions
     private void calculateSeats() {
         if (partPosition == null || partYRot == null || partXRot == null) return;
         
@@ -1521,12 +1541,17 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 //this.moving_body.moveTo(this.body.getX(), this.getY() + 4.7, this.body.getZ());
         }
 
-        this.setPos(this.xo, this.yo, this.zo);
+        if (hasAnchorDown()) {
+            this.setPos(this.xo, this.getY(), this.zo);
+            this.setDeltaMovement(0, this.getDeltaMovement().y, 0);
+        } else {
+            this.setPos(this.xo, this.yo, this.zo);
+        }
         this.setYRot(yRotO);
         this.setXRot(xRotO);
-        //this.setXxa(0.0F);
-        //this.setYya(0.0F);
     }
+
+
 
 //    private void updateWalkerPositions() {
 //        for ( HullbackPartEntity part : getSubEntities()) {
@@ -1846,7 +1871,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         return (getPassengers().size() < 7);
     }
 
-    // MODIFICADO: Melhorar positionRider para lidar com assentos não inicializados
+    // Improve positionRider to handle uninitialized seats
     @Override
     protected void positionRider(Entity passenger, Entity.MoveFunction callback) {
         if (!this.hasPassenger(passenger)) return;
@@ -1860,14 +1885,14 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         if(this.getArmorProgress() == 0)
             yOffset = 0.5F;
 
-        // NOVO: Verificar se os assentos foram calculados
+        // Verify if seats were calculated
         if (seatIndex < seats.length && seats[seatIndex] != null) {
             callback.accept(passenger,
                     seats[seatIndex].x,
                     seats[seatIndex].y - yOffset,
                     seats[seatIndex].z);
         } else {
-            // FALLBACK: Usar posição da entidade principal se assentos não foram calculados
+            // Fallback: Use entity's main position if seats were not calculated
             callback.accept(passenger,
                     this.getX(),
                     this.getY() + 5.0 - yOffset,
@@ -2116,7 +2141,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             if (hasAnchorDown()){
                 if (tickCount % 10 == 0)
                     this.playSound(SoundEvents.WOOD_HIT);
-                return Vec3.ZERO;
+                //return Vec3.ZERO;
             }
             if (tickCount % 2 == 0)
                 this.playSound(SoundEvents.WOODEN_BUTTON_CLICK_ON);
@@ -2133,12 +2158,26 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         float f = player.xxa * 0.5F;
         float f1 = player.zza;
+        
+        if (hasAnchorDown()) {
+             f = 0;
+             f1 = 0;
+        }
         if (f1 <= 0.0F) {
             f1 *= 0.25F;
         }
         float f3 = 0;
         if(this.nose.isEyeInFluidType(Fluids.WATER.getFluidType()))
             f3 = 1;
+
+        if (hasAnchorDown() && this.isInWater()) {
+             double targetY = this.level().getSeaLevel() - 5.0;
+             double currentY = this.getY();
+             double diff = targetY - currentY;
+
+             // Proportional Control for Input
+             f3 = (float) Mth.clamp(diff * 0.05, -0.05, 0.05);
+        }
 
         return new Vec3(0, f3, f1);
     }
@@ -2429,7 +2468,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 );
             }
 
-            this.hullback.playSound(WBSoundRegistry.HULLBACK_BREATHE.get(), Config.SOUND_DISTANCE.get().floatValue(), 1);
+            this.hullback.playSound(WBSoundRegistry.HULLBACK_BREATHE.get(), 3.0f, 1);
             this.hullback.setXRot(Mth.rotLerp(0.1f, this.hullback.getXRot(), 0));
         }
 
@@ -2730,7 +2769,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 if(isBeached) {
                     mob.playSound(WBSoundRegistry.ORGAN.get(), 2, 2f);
                     mob.playSound(WBSoundRegistry.ORGAN.get(), 2, 1f);
-                    mob.playSound(WBSoundRegistry.HULLBACK_HURT.get(), Config.SOUND_DISTANCE.get().floatValue(), 0.2f);
+                    mob.playSound(WBSoundRegistry.HULLBACK_HURT.get(), 3.0f, 0.2f);
                     mob.playSound(WBSoundRegistry.HULLBACK_SWIM.get(), 2, 0.5f);
                     pushEntities();
                 }
@@ -2817,7 +2856,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                     );
                 }
 
-                this.mob.playSound(WBSoundRegistry.HULLBACK_BREATHE.get(), Config.SOUND_DISTANCE.get().floatValue() * 1.5f, 1);
+                this.mob.playSound(WBSoundRegistry.HULLBACK_BREATHE.get(), 1.5f, 1);
             }
         }
     }
