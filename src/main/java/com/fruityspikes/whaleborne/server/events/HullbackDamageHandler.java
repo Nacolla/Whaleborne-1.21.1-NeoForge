@@ -43,14 +43,14 @@ public class HullbackDamageHandler {
         boolean blocked = hullback.getRandom().nextFloat() < blockChance;
 
         if (blocked) {
-            // BLOQUEIO COMPLETO - não consome armadura, cancela dano
+            // FULL BLOCK - does not consume armor, cancels damage
             event.setCanceled(true);
             hullback.setMouthTarget(0.3f);
             hullback.playSound(SoundEvents.SHIELD_BLOCK, 1.0F, 0.8F + hullback.getRandom().nextFloat() * 0.4F);
             hullback.playSound(WBSoundRegistry.HULLBACK_HAPPY.get(), 1.0F, 0.8F + hullback.getRandom().nextFloat() * 0.4F);
             hullback.updateContainerEquipment();
         } else {
-            // NÃO BLOQUEOU - consome armadura e reduz dano
+            // DID NOT BLOCK - consumes armor and reduces damage
             hullback.setMouthTarget(0.8f);
             
             float amount = event.getAmount();
