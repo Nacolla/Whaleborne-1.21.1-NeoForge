@@ -11,7 +11,9 @@ import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.inventory.ClickType;
 
 public class CannonMenu extends AbstractContainerMenu {
     private final Container cannonContainer;
@@ -67,6 +69,38 @@ public class CannonMenu extends AbstractContainerMenu {
     }
 
     @Override
+    public void clicked(int slotId, int button, ClickType clickType, Player player) {
+        if (slotId >= 0 && slotId < this.slots.size()) {
+            Slot slot = this.slots.get(slotId);
+            if (slot.container == cannon.inventory && slot.getSlotIndex() == 0) {
+                 // Interaction with the Ammo Slot (Slot 0)
+                 if (cannon.getBarrelRider() != null) {
+                     // There is a rider, so this slot contains the "Phantom Head"
+                     // Cancel ANY standard interaction that would give the item
+                     if (clickType == ClickType.PICKUP || clickType == ClickType.QUICK_MOVE || clickType == ClickType.SWAP) {
+                          // Allow the "Pick up" action visually to empty the slot, but destroy the cursor item immediately?
+                          // Better: Just clear the slot. This triggers 'containerChanged' in Entity -> Eject.
+                          slot.set(ItemStack.EMPTY);
+                          
+                          // If swapping, we need to handle the item being swapped IN
+                          if (clickType == ClickType.SWAP && button >= 0 && button < 9) {
+                               // The player is trying to swap an item from hotbar to here.
+                               ItemStack hotbarItem = player.getInventory().getItem(button);
+                               slot.set(hotbarItem.copy()); // Put the new item in
+                               // The old head is GONE.
+                          }
+                          
+                          // Play UI sound
+                          // player.playSound(SoundEvents.UI_BUTTON_CLICK, 0.25f, 1.0f);
+                          return; // Suppress default logic which might put the head in cursor
+                     }
+                 }
+            }
+        }
+        super.clicked(slotId, button, clickType, player);
+    }
+
+    @Override
     public ItemStack quickMoveStack(Player player, int index) {
         ItemStack itemstack = ItemStack.EMPTY;
         Slot slot = this.slots.get(index);
@@ -87,6 +121,11 @@ public class CannonMenu extends AbstractContainerMenu {
                 } else if (!this.moveItemStackTo(itemstack1, 0, 1, false)) {
                     return ItemStack.EMPTY;
                 }
+            }
+            
+            // Security check: If we moved FROM Slot 0, and it was a rider head, DESTROY the copy we just made.
+            if (index == 0 && cannon.getBarrelRider() != null) {
+                 itemstack = ItemStack.EMPTY; // Don't return the item to be held/moved
             }
 
             if (itemstack1.isEmpty()) {

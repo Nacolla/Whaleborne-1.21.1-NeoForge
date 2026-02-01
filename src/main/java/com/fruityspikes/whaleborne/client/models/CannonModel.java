@@ -45,5 +45,9 @@ public class CannonModel<T extends CannonEntity> extends EntityModel<T> {
         cannon.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
         bb_main.render(poseStack, vertexConsumer, packedLight, packedOverlay, color);
     }
+    
+    public ModelPart getCannon() {
+        return this.cannon;
+    }
 }
 

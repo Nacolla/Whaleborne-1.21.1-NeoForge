@@ -1,12 +1,14 @@
 package com.fruityspikes.whaleborne.client.events;
 
 import com.fruityspikes.whaleborne.Whaleborne;
+import com.fruityspikes.whaleborne.server.entities.CannonEntity;
 import com.fruityspikes.whaleborne.server.entities.HelmEntity;
 import com.fruityspikes.whaleborne.server.entities.HullbackEntity;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.model.HumanoidModel;
+import net.minecraft.client.model.PlayerModel;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
@@ -50,6 +52,40 @@ public class ClientEvents {
                     event.getRenderer().getModel().leftArmPose = HumanoidModel.ArmPose.CROSSBOW_CHARGE;
                 }
             }
+        }
+        
+        if (player.getVehicle() instanceof CannonEntity cannon) {
+            if (player.getUUID().equals(cannon.getBarrelRider())) {
+                event.setCanceled(true); // Completely hide player (Body, Skin, Armor, Equipment)
+                return;
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onRenderPlayerPost(RenderPlayerEvent.Post event) {
+        if (event.getRenderer().getModel() instanceof PlayerModel model) {
+            if (!model.body.visible) { 
+                model.body.visible = true;
+                model.leftArm.visible = true;
+                model.rightArm.visible = true;
+                model.leftLeg.visible = true;
+                model.rightLeg.visible = true;
+                model.jacket.visible = true;
+                model.leftSleeve.visible = true;
+                model.rightSleeve.visible = true;
+                model.leftPants.visible = true;
+                model.rightPants.visible = true;
+            }
+        } else {
+            HumanoidModel<?> model = event.getRenderer().getModel();
+             if (!model.body.visible) {
+                model.body.visible = true;
+                model.leftArm.visible = true;
+                model.rightArm.visible = true;
+                model.leftLeg.visible = true;
+                model.rightLeg.visible = true;
+             }
         }
     }
 }
