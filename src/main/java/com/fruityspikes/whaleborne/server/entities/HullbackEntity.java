@@ -5,6 +5,7 @@ import com.fruityspikes.whaleborne.Whaleborne;
 import com.fruityspikes.whaleborne.client.menus.HullbackMenu;
 import com.fruityspikes.whaleborne.network.HullbackHurtPacket;
 import com.fruityspikes.whaleborne.network.SyncHullbackDirtPacket;
+import com.fruityspikes.whaleborne.network.ToggleControlPayload;
 import com.fruityspikes.whaleborne.network.WhaleborneNetwork;
 import com.fruityspikes.whaleborne.server.data.HullbackDirtManager;
 import com.fruityspikes.whaleborne.server.registries.*;
@@ -12,6 +13,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.Registries;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.api.distmarker.OnlyIn;
+import net.minecraftforge.fml.ModList;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtUtils;
@@ -106,6 +110,10 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_4 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_5 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_6 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
+    private static final EntityDataAccessor<Boolean> DATA_VECTOR_CONTROL = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.BOOLEAN);
+
+    // Performance cache for third-person mod detection
+    private static Boolean IS_THIRD_PERSON_MOD_LOADED = null;
     public final HullbackPartEntity head;
     public final HullbackPartEntity nose;
     public final HullbackPartEntity body;
@@ -177,7 +185,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         this.subEntities = new HullbackPartEntity[]{this.nose, this.head, this.body, this.tail, this.fluke};
         //this.moving_subEntities = new HullbackPartWalkableEntity[]{this.moving_nose, this.moving_head, this.moving_body, this.moving_tail, this.moving_fluke};
-        this.setId(ENTITY_COUNTER.getAndAdd(this.subEntities.length + 1) + 1);
+        //this.setId(ENTITY_COUNTER.getAndAdd(this.subEntities.length + 1) + 1);
 
         this.prevPartPositions = new Vec3[5];
         this.partPosition = new Vec3[5];
@@ -492,6 +500,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         this.entityData.define(DATA_CROWN_ID, ItemStack.EMPTY);
         this.entityData.define(DATA_ARMOR, ItemStack.EMPTY);
         this.entityData.define(DATA_MOUTH_PROGRESS, 0f);
+        this.entityData.define(DATA_VECTOR_CONTROL, false);
     }
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
@@ -1297,13 +1306,22 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 //        }
 
         updateMouthOpening();
+
+        if (this.level().isClientSide && this.getControllingPassenger() instanceof Player player && player.isLocalPlayer()) {
+             boolean shouldBeVector = isVectorControlActiveClient();
+             if (this.entityData.get(DATA_VECTOR_CONTROL) != shouldBeVector) {
+                 WhaleborneNetwork.INSTANCE.sendToServer(new com.fruityspikes.whaleborne.network.ToggleControlPayload(shouldBeVector));
+             }
+        }
+
 //        if (!level().isClientSide && getControllingPassenger() instanceof Player player) {
 //            setYRot(Mth.rotLerp(0.8f, getYRot(), getYRot() - player.xxa));
 //        }
-        if (getControllingPassenger() instanceof Player player) {
-            if(player.xxa != 0)
-                setYRot(Mth.rotLerp(0.8f, getYRot(), getYRot() - player.xxa));
-        }
+        // Legacy steering removed in favor of getRiddenInput/travel logic
+        // if (getControllingPassenger() instanceof Player player) {
+        //    if(player.xxa != 0)
+        //        setYRot(Mth.rotLerp(0.8f, getYRot(), getYRot() - player.xxa));
+        // }
 //        if(this.getControllingPassenger() instanceof Player){
 //            //if(this.level().isClientSide){
 //               // System.out.println(newRotY);
@@ -1639,6 +1657,21 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                         Mth.lerp(partDragFactors[i], prevPartPositions[i].y, baseOffsets[i].y),
                         Mth.lerp(partDragFactors[i], prevPartPositions[i].z, baseOffsets[i].z)
                 );
+
+                // Chain Constraint: Prevent parts from disconnecting
+                double maxDist = switch(i) {
+                     case 1 -> 3.55;
+                     case 2 -> 4.8;
+                     case 3 -> 4.8;
+                     case 4 -> 4.1;
+                     default -> 10.0;
+                };
+
+                Vec3 parentPos = prevPartPositions[i-1];
+                double dist = baseOffsets[i].distanceTo(parentPos);
+                if (dist > maxDist) {
+                     baseOffsets[i] = parentPos.add(baseOffsets[i].subtract(parentPos).normalize().scale(maxDist));
+                }
             }
             prevPartPositions[i] = baseOffsets[i];
         }
@@ -1682,7 +1715,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         Vec3 flukeTarget = new Vec3(
                 tail.getX() + flukeOffset.x,
-                tail.getY() + flukeOffset.y + swimCycle * 10,
+                tail.getY() + flukeOffset.y + swimCycle * 5.5f,
                 tail.getZ() + flukeOffset.z
         );
 
@@ -2012,37 +2045,15 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         }
     }
 
-    protected Vec3 getRiddenInput(Player player, Vec3 travelVector) {
-        if(Mth.abs(player.xxa) > 0){
-            if (hasAnchorDown()){
-                if (tickCount % 10 == 0)
-                    this.playSound(SoundEvents.WOOD_HIT);
-                return Vec3.ZERO;
-            }
-            if (tickCount % 2 == 0)
-                this.playSound(SoundEvents.WOODEN_BUTTON_CLICK_ON);
-            //newRotY = this.getYRot() - player.xxa;
 
-            if(getControllingPassenger().getVehicle() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
-                helmEntity.setWheelRotation(helmEntity.getWheelRotation() + player.xxa / 10);
-            }
-        } else{
-            if(getControllingPassenger().getVehicle() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
-                helmEntity.setPrevWheelRotation(helmEntity.getWheelRotation());
-            }
-        }
 
-        float f = player.xxa * 0.5F;
-        float f1 = player.zza;
-        if (f1 <= 0.0F) {
-            f1 *= 0.25F;
-        }
-        float f3 = 0;
-        if(this.nose.isEyeInFluidType(Fluids.WATER.getFluidType()))
-            f3 = 1;
-
-        return new Vec3(0, f3, f1);
+    public void setVectorControl(boolean active) {
+        this.entityData.set(DATA_VECTOR_CONTROL, active);
     }
+
+
+
+
 
     @Override
     protected float getRiddenSpeed(Player player) {
@@ -2722,4 +2733,113 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
     }
+
+    // --- Ported Logic from 1.21.1 for 1.20.1 (Definitive Fix) ---
+
+    private boolean isVectorControlActive() {
+        if (this.level().isClientSide) {
+             return isVectorControlActiveClient();
+        }
+        return this.entityData.get(DATA_VECTOR_CONTROL);
+    }
+
+    @OnlyIn(Dist.CLIENT)
+    private boolean isVectorControlActiveClient() {
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        if (mc.player == null || this.getControllingPassenger() != mc.player) {
+            return this.entityData.get(DATA_VECTOR_CONTROL);
+        }
+
+        if (IS_THIRD_PERSON_MOD_LOADED == null) {
+            IS_THIRD_PERSON_MOD_LOADED = net.minecraftforge.fml.ModList.get().isLoaded("leawind_third_person");
+        }
+
+        boolean isFirstPerson = mc.options.getCameraType().isFirstPerson();
+        return IS_THIRD_PERSON_MOD_LOADED && !isFirstPerson;
+    }
+
+    @Override
+    public void travel(Vec3 pTravelVector) {
+        if (this.isAlive()) {
+            if (this.isVehicle() && this.getControllingPassenger() instanceof Player player) {
+                // Use the new getRiddenInput logic
+                Vec3 input = this.getRiddenInput(player, pTravelVector);
+                super.travel(input);
+            } else {
+                super.travel(pTravelVector);
+            }
+        }
+    }
+
+    @Override
+    protected Vec3 getRiddenInput(Player player, Vec3 travelVector) {
+        boolean hasInput = Mth.abs(player.xxa) > 0 || Mth.abs(player.zza) > 0;
+
+        if (hasInput) {
+            if (hasAnchorDown()) {
+                if (tickCount % 10 == 0) this.playSound(SoundEvents.WOOD_HIT, 1, 1);
+                return Vec3.ZERO; 
+            }
+            
+            if (tickCount % 2 == 0) this.playSound(SoundEvents.WOODEN_BUTTON_CLICK_ON, 0.5f, 1.0f);
+             
+            if(getControllingPassenger() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
+                 helmEntity.setWheelRotation(helmEntity.getWheelRotation() + player.xxa / 10);
+            }
+        } else {
+             if(getControllingPassenger() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
+                helmEntity.setPrevWheelRotation(helmEntity.getWheelRotation());
+            }
+        }
+
+        boolean vectorControl = isVectorControlActive();
+        
+        float xxa = player.xxa;
+        float zza = player.zza;
+
+        if (vectorControl) {
+            // --- VECTOR MODE (3rd Person) ---
+            if (hasInput) {
+                float targetYaw = player.getYRot() - (float)(Mth.atan2(player.xxa, player.zza) * (180D / Math.PI));
+                
+                this.setYRot(Mth.rotLerp(0.05f, this.getYRot(), targetYaw));
+                this.yBodyRot = this.getYRot();
+                this.yHeadRot = this.getYRot();
+                
+                zza = Mth.sqrt(xxa * xxa + zza * zza); 
+                xxa = 0; 
+            } else {
+                zza = 0;
+            }
+        } else {
+            // --- TANK MODE (1st Person) ---
+            if (zza <= 0.0F) {
+                zza *= 0.25F; 
+            }
+            
+            // Lateral input becomes ROTATION
+            if (player.xxa != 0) {
+                 this.setYRot(Mth.rotLerp(0.8F, this.getYRot(), this.getYRot() - player.xxa)); 
+                 this.yBodyRot = this.getYRot();
+            }
+            
+            xxa = 0; // Prevent drift
+        }
+
+        float f3 = 0;
+        if(this.nose != null && this.nose.isEyeInFluidType(Fluids.WATER.getFluidType()))
+             f3 = 1;
+
+        if (hasAnchorDown() && this.isInWater()) {
+             double targetY = this.level().getSeaLevel() - 5.0;
+             double currentY = this.getY();
+             double diff = targetY - currentY;
+             f3 = (float) Mth.clamp(diff * 0.05, -0.05, 0.05);
+             zza = 0; 
+        }
+
+        return new Vec3(0, f3, zza); 
+    }
 }
+
+
