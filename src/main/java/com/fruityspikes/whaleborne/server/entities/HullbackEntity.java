@@ -1863,8 +1863,41 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 UUID uuid = assignedUUID.get();
 
                 if (!currentPassengerUUIDs.contains(uuid)) {
-                    //Whaleborne.LOGGER.debug("Clearing seat assignment: seat {} for {}", seatIndex, uuid);
-                    this.entityData.set(seatAccessor, Optional.empty());
+                    boolean shouldClear = true;
+
+                    // "Smart" Check & Active Recovery
+                    if (this.level() instanceof ServerLevel serverLevel) {
+                        Entity passengerEntity = serverLevel.getEntity(uuid);
+                        
+                        if (passengerEntity == null) {
+                            // Entity still loading or dead. Wait up to 60s.
+                            if (this.tickCount < 1200) { 
+                                shouldClear = false;
+                            }
+                        } else {
+                            // Entity found but deemed "detached" (not in our passenger list).
+                            // RECOVERY LOGIC:
+                            // 1. Teleport to seat (catch up if whale moved)
+                            // 2. Force mount
+                            wa
+                            if (passengerEntity.isAlive()) {
+                                Vec3 seatPos = seats[seatIndex]; // Current seat position
+                                // Teleport to sync position before mounting to avoid weird interpolation
+                                passengerEntity.teleportTo(seatPos.x, seatPos.y, seatPos.z);
+                                
+                                // Force re-mount
+                                passengerEntity.startRiding(this, true);
+                                
+                                // Do NOT clear the seat, we just fixed it.
+                                shouldClear = false;
+                            }
+                        }
+                    }
+
+                    if (shouldClear) {
+                        //Whaleborne.LOGGER.debug("Clearing seat assignment: seat {} for {}", seatIndex, uuid);
+                        this.entityData.set(seatAccessor, Optional.empty());
+                    }
                 }
 
                 else {
@@ -2179,8 +2212,23 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         public void tick() {
             super.tick();
 
-            if(!mob.getSubEntities()[0].isEyeInFluidType(Fluids.WATER.getFluidType()))
-                mob.setDeltaMovement(0, -0.1, 0);
+            // Lógica de flutuação inteligente - mantém a Hullback domada em uma profundidade adequada
+            if(!mob.getSubEntities()[0].isEyeInFluidType(Fluids.WATER.getFluidType())) {
+                // Define a altura alvo como 5 blocos abaixo do nível do mar
+                double targetY = mob.level().getSeaLevel() - 5.0;
+                double currentY = mob.getY();
+                double diff = targetY - currentY;
+                
+                if(mob.isTamed()) {
+                    // Reajusta a altura bidirecionalmente para domados
+                    if (Math.abs(diff) > 0.1) {
+                        double adjustSpeed = Mth.clamp(diff * 0.05, -0.1, 0.1);
+                        mob.setDeltaMovement(mob.getDeltaMovement().x, adjustSpeed, mob.getDeltaMovement().z);
+                    }
+                } else {
+                     mob.setDeltaMovement(0, -0.1, 0);
+                }
+            }
 
             if (currentTarget != null && mob.getNavigation().isDone() && mob.position().distanceTo(currentTarget) > MIN_DISTANCE) {
                 mob.getNavigation().moveTo(currentTarget.x, currentTarget.y, currentTarget.z, speedModifier);
