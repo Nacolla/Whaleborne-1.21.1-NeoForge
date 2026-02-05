@@ -333,21 +333,7 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
 
     }
     protected void createInventory() {
-        SimpleContainer simplecontainer = this.inventory;
-        this.inventory = new SimpleContainer(this.getInventorySize());
-        if (simplecontainer != null) {
-            simplecontainer.removeListener(this);
-            int i = Math.min(simplecontainer.getContainerSize(), this.inventory.getContainerSize());
-
-            for(int j = 0; j < i; ++j) {
-                ItemStack itemstack = simplecontainer.getItem(j);
-                if (!itemstack.isEmpty()) {
-                    this.inventory.setItem(j, itemstack.copy());
-                }
-            }
-        }
-
-        this.inventory.addListener(this);
+        // No-Op. Inventory is created on initialization and should not be replaced.
     }
     protected int getInventorySize() {
         return 2;
@@ -356,29 +342,38 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
         ListTag items = new ListTag();
-
         for(int i = 0; i < this.inventory.getContainerSize(); i++) {
             ItemStack stack = this.inventory.getItem(i);
             if (!stack.isEmpty()) {
-                CompoundTag itemTag = new CompoundTag();
-                itemTag.putByte("Slot", (byte)i);
-                stack.save(this.registryAccess(), itemTag);
-                items.add(itemTag);
+                // Use robust saving logic matching HullbackEntity for 1.21+
+                try {
+                     net.minecraft.nbt.Tag savedTag = stack.save(this.registryAccess());
+                     if (savedTag instanceof CompoundTag itemTag) {
+                         itemTag.putByte("Slot", (byte)i);
+                         items.add(itemTag);
+                     }
+                } catch (Exception e) {
+                    // Log error if needed, but ensure we don't crash saving
+                }
             }
         }
-        tag.put("Items", items);
+        tag.put("CannonItems", items);
     }
 
     @Override
     public void readAdditionalSaveData(CompoundTag tag) {
         super.readAdditionalSaveData(tag);
-        ListTag items = tag.getList("Items", 10);
-
-        for(int i = 0; i < items.size(); i++) {
-            CompoundTag itemTag = items.getCompound(i);
-            int slot = itemTag.getByte("Slot") & 255;
-            if (slot >= 0 && slot < this.inventory.getContainerSize()) {
-                this.inventory.setItem(slot, ItemStack.parse(this.registryAccess(), itemTag).orElse(ItemStack.EMPTY));
+        
+        if (tag.contains("CannonItems")) {
+            ListTag items = tag.getList("CannonItems", 10);
+            
+            for(int i = 0; i < items.size(); i++) {
+                CompoundTag itemTag = items.getCompound(i);
+                int slot = itemTag.getByte("Slot") & 255;
+                if (slot >= 0 && slot < this.inventory.getContainerSize()) {
+                    ItemStack stack = ItemStack.parse(this.registryAccess(), itemTag).orElse(ItemStack.EMPTY);
+                    this.inventory.setItem(slot, stack);
+                }
             }
         }
     }

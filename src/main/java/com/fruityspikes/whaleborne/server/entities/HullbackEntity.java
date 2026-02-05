@@ -7,6 +7,11 @@ import com.fruityspikes.whaleborne.network.HullbackHurtPayload;
 import com.fruityspikes.whaleborne.network.SyncHullbackDirtPayload;
 import com.fruityspikes.whaleborne.server.data.HullbackDirtManager;
 import com.fruityspikes.whaleborne.server.registries.*;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
+import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.network.PacketDistributor;
+import com.fruityspikes.whaleborne.network.ToggleControlPayload;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
@@ -85,6 +90,9 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class HullbackEntity extends WaterAnimal implements ContainerListener, HasCustomInventoryScreen, PlayerRideableJumping, Saddleable {
+    
+    // CACHE para não verificar o ModList todo tick
+    private static Boolean IS_THIRD_PERSON_MOD_LOADED = null;
     private static final ResourceLocation SAIL_SPEED_MODIFIER_ID = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "sail_speed_modifier");
     private boolean validatedAfterLoad = false;
     private float leftEyeYaw, rightEyeYaw, eyePitch;
@@ -114,6 +122,8 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_4 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_5 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_6 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
+    private static final EntityDataAccessor<Boolean> DATA_VECTOR_CONTROL = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.BOOLEAN);  
+    
     public final HullbackPartEntity head;
     public final HullbackPartEntity nose;
     public final HullbackPartEntity body;
@@ -517,6 +527,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         builder.define(DATA_CROWN_ID, ItemStack.EMPTY);
         builder.define(DATA_ARMOR, ItemStack.EMPTY);
         builder.define(DATA_MOUTH_PROGRESS, 0f);
+        builder.define(DATA_VECTOR_CONTROL, false);
     }
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
@@ -1279,6 +1290,33 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     @Override
     public void tick() {
         super.tick();
+
+        if (this.level().isClientSide && this.tickCount % 40 == 0) {
+            LivingEntity controller = this.getControllingPassenger();
+            System.out.println("HullbackTick: DEBUG | Controller=" + controller + " | IsPlayer=" + (controller instanceof Player));
+            if (controller instanceof Player p) {
+                System.out.println("HullbackTick: DEBUG | LocalPlayer=" + p.isLocalPlayer());
+            }
+        }
+        
+        if (this.level().isClientSide && this.getControllingPassenger() instanceof Player player && player.isLocalPlayer()) {
+             boolean modLoaded = net.neoforged.fml.ModList.get().isLoaded("leawind_third_person");
+             net.minecraft.client.CameraType camType = net.minecraft.client.Minecraft.getInstance().options.getCameraType();
+             boolean thirdPerson = !camType.isFirstPerson();
+             boolean shouldVector = modLoaded && thirdPerson;
+             
+             if (this.tickCount % 20 == 0) {
+                 System.out.println("HullbackTick: Camera=" + camType + " Mod=" + modLoaded + " Should=" + shouldVector + " Current=" + this.entityData.get(DATA_VECTOR_CONTROL));
+             }
+             
+             if (shouldVector != this.entityData.get(DATA_VECTOR_CONTROL)) {
+                 // Send Packet
+                 net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.fruityspikes.whaleborne.network.ToggleControlPayload(this.getId(), shouldVector));
+                 // Predict locally to avoid lag
+                 this.entityData.set(DATA_VECTOR_CONTROL, shouldVector);
+                 System.out.println("HullbackTick: Sending Packet " + shouldVector);
+             }
+        }
         
         // NEW: Single validation after loading from NBT
         if (!this.level().isClientSide && !validatedAfterLoad && this.tickCount > 5) {
@@ -1392,9 +1430,56 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         updateMouthOpening();
         
-        if (getControllingPassenger() instanceof Player player) {
-            if(player.xxa != 0)
-                setYRot(Mth.rotLerp(0.8f, getYRot(), getYRot() - player.xxa));
+        if (this.level().isClientSide) {
+             clientHandleControlState();
+        }
+
+        LivingEntity controller = getControllingPassenger();
+        
+        if (controller instanceof Player player) {
+             // Let getRiddenInput handle movement. Just ensure basic things here if needed.
+        }
+
+        if (false && controller instanceof Player player) { // DISABLED logic, moved to clientHandleControlState / getRiddenInput
+            float f = player.xxa * 0.5F;
+            float f1 = player.zza;
+            
+            // Check overrides locally
+            boolean vectorControl = this.entityData.get(DATA_VECTOR_CONTROL);
+            if (this.level().isClientSide) {
+                 try {
+                     boolean isFirstPerson = net.minecraft.client.Minecraft.getInstance().options.getCameraType().isFirstPerson();
+                     // Only apply failsafe if THIS player is the one controlling
+                     if (player == net.minecraft.client.Minecraft.getInstance().player) {
+                         if (this.tickCount % 40 == 0) {
+                            System.err.println("HullbackControl: IsFirstPerson=" + isFirstPerson + " | Vector=" + vectorControl);
+                         }
+                         if (isFirstPerson) {
+                             vectorControl = false;
+                             // Force Sync to Server if it thinks otherwise
+                             if (this.entityData.get(DATA_VECTOR_CONTROL)) {
+                                 if (this.tickCount % 10 == 0) System.err.println("HullbackControl: Sending Force-Tank Packet");
+                                 net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.fruityspikes.whaleborne.network.ToggleControlPayload(this.getId(), false));
+                             }
+                         }
+                     }
+                 } catch (Exception e) {
+                 }
+            }
+
+            // Only use vector control if enabled
+            if (vectorControl) {
+                 float inputMag = Mth.sqrt(f * f + f1 * f1);
+                 
+                 if (inputMag > 0.01) {
+                     float targetYaw = player.getYRot() - (float)(Mth.atan2(player.xxa, player.zza) * (180D / Math.PI));
+                     setYRot(Mth.rotLerp(0.1f, getYRot(), targetYaw));
+                 }
+            } else {
+                 if (player.xxa != 0) {
+                     setYRot(Mth.rotLerp(0.8f, getYRot(), getYRot() - player.xxa * 5.0f)); // Multiplier to make it responsive
+                 }
+            }
         }
 
         if (this.tickCount % 80 == 0)
@@ -1526,14 +1611,14 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             if (this.tickCount % 5 == 0) {}
                 //this.moving_nose.moveTo(this.nose.getX(), this.getY() + 4.7, this.nose.getZ());
         }
-
+        
         if (this.moving_head == null) {
             this.moving_head = spawnPlatform(1);
         } else {
             if (this.tickCount % 5 == 0) {}
                 //this.moving_head.moveTo(this.head.getX(), this.getY() + 4.7, this.head.getZ());
         }
-
+        
         if (this.moving_body == null) {
             this.moving_body = spawnPlatform(2);
         } else {
@@ -1765,6 +1850,21 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                         Mth.lerp(partDragFactors[i], prevPartPositions[i].y, baseOffsets[i].y),
                         Mth.lerp(partDragFactors[i], prevPartPositions[i].z, baseOffsets[i].z)
                 );
+                
+                // Chain Constraint: Prevent parts from disconnecting
+                double maxDist = switch(i) {
+                     case 1 -> 3.55;
+                     case 2 -> 4.8;
+                     case 3 -> 4.8;
+                     case 4 -> 4.1;
+                     default -> 10.0;
+                };
+                
+                Vec3 parentPos = prevPartPositions[i-1];
+                double dist = baseOffsets[i].distanceTo(parentPos);
+                if (dist > maxDist) {
+                     baseOffsets[i] = parentPos.add(baseOffsets[i].subtract(parentPos).normalize().scale(maxDist));
+                }
             }
             prevPartPositions[i] = baseOffsets[i];
         }
@@ -1808,7 +1908,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         Vec3 flukeTarget = new Vec3(
                 tail.getX() + flukeOffset.x,
-                tail.getY() + flukeOffset.y + swimCycle * 10,
+                tail.getY() + flukeOffset.y + swimCycle * 5.5,
                 tail.getZ() + flukeOffset.z
         );
 
@@ -1957,8 +2057,41 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 UUID uuid = assignedUUID.get();
 
                 if (!currentPassengerUUIDs.contains(uuid)) {
-                    //Whaleborne.LOGGER.debug("Clearing seat assignment: seat {} for {}", seatIndex, uuid);
-                    this.entityData.set(seatAccessor, Optional.empty());
+                    boolean shouldClear = true;
+
+                    // "Smart" Check & Active Recovery
+                    if (this.level() instanceof ServerLevel serverLevel) {
+                        Entity passengerEntity = serverLevel.getEntity(uuid);
+                        
+                        if (passengerEntity == null) {
+                            // Entity still loading or dead. Wait up to 60s.
+                            if (this.tickCount < 1200) { 
+                                shouldClear = false;
+                            }
+                        } else {
+                            // Entity found but deemed "detached" (not in our passenger list).
+                            // RECOVERY LOGIC:
+                            // 1. Teleport to seat (catch up if whale moved)
+                            // 2. Force mount
+                            
+                            if (passengerEntity.isAlive()) {
+                                Vec3 seatPos = seats[seatIndex]; // Current seat position
+                                // Teleport to sync position before mounting to avoid weird interpolation
+                                passengerEntity.teleportTo(seatPos.x, seatPos.y, seatPos.z);
+                                
+                                // Force re-mount
+                                passengerEntity.startRiding(this, true);
+                                
+                                // Do NOT clear the seat, we just fixed it.
+                                shouldClear = false;
+                            }
+                        }
+                    }
+
+                    if (shouldClear) {
+                        //Whaleborne.LOGGER.debug("Clearing seat assignment: seat {} for {}", seatIndex, uuid);
+                        this.entityData.set(seatAccessor, Optional.empty());
+                    }
                 }
 
                 else {
@@ -2136,51 +2269,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         }
     }
 
-    protected Vec3 getRiddenInput(Player player, Vec3 travelVector) {
-        if(Mth.abs(player.xxa) > 0){
-            if (hasAnchorDown()){
-                if (tickCount % 10 == 0)
-                    this.playSound(SoundEvents.WOOD_HIT);
-                //return Vec3.ZERO;
-            }
-            if (tickCount % 2 == 0)
-                this.playSound(SoundEvents.WOODEN_BUTTON_CLICK_ON);
-            //newRotY = this.getYRot() - player.xxa;
 
-            if(getControllingPassenger().getVehicle() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
-                helmEntity.setWheelRotation(helmEntity.getWheelRotation() + player.xxa / 10);
-            }
-        } else{
-            if(getControllingPassenger().getVehicle() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
-                helmEntity.setPrevWheelRotation(helmEntity.getWheelRotation());
-            }
-        }
-
-        float f = player.xxa * 0.5F;
-        float f1 = player.zza;
-        
-        if (hasAnchorDown()) {
-             f = 0;
-             f1 = 0;
-        }
-        if (f1 <= 0.0F) {
-            f1 *= 0.25F;
-        }
-        float f3 = 0;
-        if(this.nose.isEyeInFluidType(Fluids.WATER.getFluidType()))
-            f3 = 1;
-
-        if (hasAnchorDown() && this.isInWater()) {
-             double targetY = this.level().getSeaLevel() - 5.0;
-             double currentY = this.getY();
-             double diff = targetY - currentY;
-
-             // Proportional Control for Input
-             f3 = (float) Mth.clamp(diff * 0.05, -0.05, 0.05);
-        }
-
-        return new Vec3(0, f3, f1);
-    }
 
     @Override
     protected float getRiddenSpeed(Player player) {
@@ -2306,8 +2395,23 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         public void tick() {
             super.tick();
 
-            if(!mob.getSubEntities()[0].isEyeInFluidType(Fluids.WATER.getFluidType()))
-                mob.setDeltaMovement(0, -0.1, 0);
+            // Lógica de flutuação inteligente - mantém a Hullback domada em uma profundidade adequada
+            if(!mob.getSubEntities()[0].isEyeInFluidType(Fluids.WATER.getFluidType())) {
+                // Define a altura alvo como 5 blocos abaixo do nível do mar
+                double targetY = mob.level().getSeaLevel() - 5.0;
+                double currentY = mob.getY();
+                double diff = targetY - currentY;
+                
+                if(mob.isTamed()) {
+                    // Readjust the height bidirectionally for tamed
+                    if (Math.abs(diff) > 0.1) {
+                        double adjustSpeed = Mth.clamp(diff * 0.05, -0.1, 0.1);
+                        mob.setDeltaMovement(mob.getDeltaMovement().x, adjustSpeed, mob.getDeltaMovement().z);
+                    }
+                } else {
+                     mob.setDeltaMovement(0, -0.1, 0);
+                }
+            }
 
             if (currentTarget != null && mob.getNavigation().isDone() && mob.position().distanceTo(currentTarget) > MIN_DISTANCE) {
                 mob.getNavigation().moveTo(currentTarget.x, currentTarget.y, currentTarget.z, speedModifier);
@@ -2859,5 +2963,163 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 this.mob.playSound(WBSoundRegistry.HULLBACK_BREATHE.get(), 1.5f, 1);
             }
         }
+    }
+    
+    public void setVectorControl(boolean val) {
+         this.entityData.set(DATA_VECTOR_CONTROL, val);
+    }
+
+
+    @OnlyIn(Dist.CLIENT)
+    private void clientHandleControlState() {
+        // Verifica se é o jogador local controlando
+        // Robust check for Helm/Multipart
+        LivingEntity controller = getControllingPassenger();
+        
+        if (controller == null) {
+             try {
+                 net.minecraft.client.player.LocalPlayer local = net.minecraft.client.Minecraft.getInstance().player;
+                 if (local != null && local.getRootVehicle() == this) {
+                     controller = local;
+                 }
+             } catch (Exception e) {}
+        }
+
+        if (controller instanceof Player player && player == net.minecraft.client.Minecraft.getInstance().player) {
+            
+            // Verifica o mod apenas uma vez e salva no cache
+            if (IS_THIRD_PERSON_MOD_LOADED == null) {
+                IS_THIRD_PERSON_MOD_LOADED = ModList.get().isLoaded("leawind_third_person");
+            }
+
+            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+            if (mc.options == null) return;
+
+            boolean isFirstPerson = mc.options.getCameraType().isFirstPerson();
+            // A lógica: Ativar vetor se o mod estiver presente E NÃO estiver em primeira pessoa
+            boolean shouldVector = IS_THIRD_PERSON_MOD_LOADED && !isFirstPerson;
+            
+            boolean currentVectorState = this.entityData.get(DATA_VECTOR_CONTROL);
+
+            // Só envia pacote se o estado DESEJADO for diferente do ATUAL
+            if (shouldVector != currentVectorState) {
+                // 1. Previsão Local (Atualiza imediatamente para evitar spam/lag visual)
+                this.entityData.set(DATA_VECTOR_CONTROL, shouldVector);
+                
+                // 2. Envia para o servidor confirmar
+                PacketDistributor.sendToServer(new ToggleControlPayload(this.getId(), shouldVector));
+                
+                // Debug (Opcional)
+                // System.out.println("Hullback: Toggling Control -> " + shouldVector);
+            }
+        }
+    }
+
+    // Adicione este método auxiliar para centralizar a lógica e proteger contra crashes
+    private boolean isVectorControlActive() {
+        // Lógica 1: Se for o Cliente, olhe para a câmera IMEDIATAMENTE e verifique se é o jogador local.
+        if (this.level().isClientSide) {
+             return isVectorControlActiveClient();
+        }
+        
+        // Lógica 2: Se for o Servidor (ou outro jogador vendo), confie nos dados sincronizados.
+        return this.entityData.get(DATA_VECTOR_CONTROL);
+    }
+
+    // Método isolado com @OnlyIn(Dist.CLIENT) para não quebrar o servidor dedicado
+    @OnlyIn(Dist.CLIENT)
+    private boolean isVectorControlActiveClient() {
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        if (mc.player == null || this.getControllingPassenger() != mc.player) {
+            // Se não sou eu pilotando, confio no entityData visual
+            return this.entityData.get(DATA_VECTOR_CONTROL);
+        }
+
+        // Cache do mod check (segurança)
+        if (IS_THIRD_PERSON_MOD_LOADED == null) {
+            IS_THIRD_PERSON_MOD_LOADED = ModList.get().isLoaded("leawind_third_person");
+        }
+
+        // AQUI ESTÁ O FIX: Prioridade absoluta para a câmera atual
+        boolean isFirstPerson = mc.options.getCameraType().isFirstPerson();
+        return IS_THIRD_PERSON_MOD_LOADED && !isFirstPerson;
+    }
+
+    @Override
+    protected Vec3 getRiddenInput(Player player, Vec3 travelVector) {
+        boolean hasInput = Mth.abs(player.xxa) > 0 || Mth.abs(player.zza) > 0;
+
+        if (hasInput) {
+            if (hasAnchorDown()) {
+                if (tickCount % 10 == 0) this.playSound(SoundEvents.WOOD_HIT, 1, 1);
+                return Vec3.ZERO; 
+            }
+            
+            if (tickCount % 2 == 0) this.playSound(SoundEvents.WOODEN_BUTTON_CLICK_ON, 0.5f, 1.0f);
+             
+            if(getControllingPassenger() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
+                 helmEntity.setWheelRotation(helmEntity.getWheelRotation() + player.xxa / 10);
+            }
+        } else {
+             if(getControllingPassenger() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
+                helmEntity.setPrevWheelRotation(helmEntity.getWheelRotation());
+            }
+        }
+
+        // USANDO A NOVA VERIFICAÇÃO HÍBRIDA
+        boolean vectorControl = isVectorControlActive();
+        
+        float xxa = player.xxa * 0.5F;
+        float zza = player.zza;
+
+        if (vectorControl) {
+            // --- MODO VETORIAL (3ª Pessoa) ---
+            if (hasInput) {
+                // Calcula rotação baseada no input relativo à câmera
+                float targetYaw = player.getYRot() - (float)(Mth.atan2(player.xxa, player.zza) * (180D / Math.PI));
+                
+                this.setYRot(Mth.rotLerp(0.05f, this.getYRot(), targetYaw));
+                this.yBodyRot = this.getYRot();
+                this.yHeadRot = this.getYRot();
+                
+                // Converte todo o movimento lateral em força para frente
+                zza = Mth.sqrt(xxa * xxa + zza * zza); 
+                xxa = 0; 
+            } else {
+                zza = 0;
+            }
+        } else {
+            // --- MODO TANQUE (1ª Pessoa / Vanilla) ---
+            if (zza <= 0.0F) {
+                zza *= 0.25F; // Ré mais lenta
+            }
+            
+            // O Input lateral (A/D) vira ROTAÇÃO, não movimento lateral
+            if (player.xxa != 0) {
+                this.setYRot(Mth.rotLerp(0.8f, this.getYRot(), this.getYRot() - player.xxa)); 
+                this.yBodyRot = this.getYRot();
+            }
+            
+            // IMPORTANTE: Zerar o xxa para impedir "drift" lateral na primeira pessoa
+            xxa = 0; 
+        }
+
+        // Lógica de FluidType mantida
+        float f3 = 0;
+        if(this.nose != null && this.nose.isEyeInFluidType(Fluids.WATER.getFluidType()))
+             f3 = 1;
+
+        // Âncora
+        if (hasAnchorDown() && this.isInWater()) {
+             double targetY = this.level().getSeaLevel() - 5.0;
+             double currentY = this.getY();
+             double diff = targetY - currentY;
+             f3 = (float) Mth.clamp(diff * 0.05, -0.05, 0.05);
+             
+             zza = 0; // Ensure no forward movement with anchor
+        }
+
+        // Retornamos 0 no X (lateral), pois ou já viramos (Tanque) ou já convertemos em frente (Vetor)
+        return new Vec3(0, f3, zza); 
     }
 }

@@ -33,5 +33,11 @@ public class WhaleborneNetwork {
                 HullbackHurtPayload.STREAM_CODEC,
                 HullbackHurtPayload::handle
         );
+        
+        registrar.playToServer(
+                ToggleControlPayload.TYPE,
+                ToggleControlPayload.STREAM_CODEC,
+                ToggleControlPayload::handle
+        );
     }
 }
