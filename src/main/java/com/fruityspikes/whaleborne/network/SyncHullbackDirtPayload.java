@@ -72,12 +72,12 @@ public record SyncHullbackDirtPayload(int entityId, CompoundTag dirtData, int ar
             BlockState[][] dirtArray = deserializeDirtArray(payload.dirtData());
             if (dirtArray != null) {
                 switch (payload.arrayType()) {
-                    case 0 -> hullback.headDirt = dirtArray;
-                    case 1 -> hullback.headTopDirt = dirtArray;
-                    case 2 -> hullback.bodyDirt = dirtArray;
-                    case 3 -> hullback.bodyTopDirt = dirtArray;
-                    case 4 -> hullback.tailDirt = dirtArray;
-                    case 5 -> hullback.flukeDirt = dirtArray;
+                    case 0 -> hullback.getWhaleDirt().headDirt = dirtArray;
+                    case 1 -> hullback.getWhaleDirt().headTopDirt = dirtArray;
+                    case 2 -> hullback.getWhaleDirt().bodyDirt = dirtArray;
+                    case 3 -> hullback.getWhaleDirt().bodyTopDirt = dirtArray;
+                    case 4 -> hullback.getWhaleDirt().tailDirt = dirtArray;
+                    case 5 -> hullback.getWhaleDirt().flukeDirt = dirtArray;
                 }
             }
         }

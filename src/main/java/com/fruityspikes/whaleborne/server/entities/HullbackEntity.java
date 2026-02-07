@@ -6,6 +6,15 @@ import com.fruityspikes.whaleborne.client.menus.HullbackMenu;
 import com.fruityspikes.whaleborne.network.HullbackHurtPayload;
 import com.fruityspikes.whaleborne.network.SyncHullbackDirtPayload;
 import com.fruityspikes.whaleborne.server.data.HullbackDirtManager;
+import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackAIManager;
+import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackBodyRotationControl;
+import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackEquipmentManager;
+import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackInteractionManager;
+import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackPartManager;
+import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackDirt;
+import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackSeatManager;
+import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackControlManager;
+import com.fruityspikes.whaleborne.server.entities.goals.hullback.*;
 import com.fruityspikes.whaleborne.server.registries.*;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
@@ -69,9 +78,6 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.core.Holder;
-import net.minecraft.network.syncher.SynchedEntityData;
-import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
-import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.neoforged.neoforge.common.NeoForgeMod;
 import net.neoforged.neoforge.common.ItemAbilities;
@@ -80,7 +86,6 @@ import net.neoforged.neoforge.fluids.FluidType;
 import net.neoforged.neoforge.items.IItemHandler;
 import net.neoforged.neoforge.items.ItemStackHandler;
 import net.neoforged.neoforge.items.wrapper.InvWrapper;
-import net.neoforged.neoforge.network.PacketDistributor;
 
 import org.joml.Matrix2dc;
 
@@ -89,7 +94,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-public class HullbackEntity extends WaterAnimal implements ContainerListener, HasCustomInventoryScreen, PlayerRideableJumping, Saddleable {
+public class HullbackEntity extends AbstractWhale implements HasCustomInventoryScreen, PlayerRideableJumping, Saddleable {
     
     // CACHE para não verificar o ModList todo tick
     private static Boolean IS_THIRD_PERSON_MOD_LOADED = null;
@@ -101,19 +106,14 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     private boolean tamedCoolDown;
     private Vec3 currentTarget;
     public int stationaryTicks;
-    public SimpleContainer inventory = new SimpleContainer(3) {
-        @Override
-        public void setChanged() {
-            super.setChanged();
-        }
-    };
+
     public static final int INV_SLOT_CROWN = 0;
     public static final int INV_SLOT_SADDLE = 1;
     public static final int INV_SLOT_ARMOR = 2;
     public boolean HAS_MOBIUS_SPAWNED = false;
     public static final EntityDataAccessor<ItemStack> DATA_CROWN_ID = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.ITEM_STACK);
     public static final EntityDataAccessor<ItemStack> DATA_ARMOR = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.ITEM_STACK);
-    public static final EntityDataAccessor<Byte> DATA_ID_FLAGS = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.BYTE);
+
     private static final EntityDataAccessor<Float> DATA_MOUTH_PROGRESS = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_0 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_1 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
@@ -122,7 +122,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_4 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_5 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_6 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
-    private static final EntityDataAccessor<Boolean> DATA_VECTOR_CONTROL = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.BOOLEAN);  
+    public static final EntityDataAccessor<Boolean> DATA_VECTOR_CONTROL = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.BOOLEAN);  
     
     public final HullbackPartEntity head;
     public final HullbackPartEntity nose;
@@ -134,13 +134,20 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     public HullbackWalkableEntity moving_nose;
     public HullbackWalkableEntity moving_body;
     private final HullbackPartEntity[] subEntities;
-    private Vec3[] prevPartPositions;
-    private Vec3[] partPosition;
-    private float[] partYRot;
-    private float[] partXRot;
-    private Vec3[] oldPartPosition;
-    private float[] oldPartYRot;
-    private float[] oldPartXRot;
+    
+    public final HullbackPartManager partManager;
+    public final HullbackDirt HullbackDirt;
+
+    public HullbackDirt getWhaleDirt() {
+        return this.HullbackDirt;
+    }
+    public final HullbackSeatManager hullbackSeatManager;
+    public final HullbackAIManager aiManager;
+    public final HullbackEquipmentManager equipmentManager;
+    public final HullbackInteractionManager interactionManager;
+    public final HullbackControlManager controlManager;
+    public final HullbackBodyRotationControl bodyControl;
+
     public float newRotY = this.getYRot();
     private float mouthOpenProgress;
     private float mouthTarget;
@@ -150,30 +157,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     }
 
     public float AttributeSpeedModifier = 1;
-    public BlockState[][] headDirt; // 8 x 5
-    public BlockState[][] headTopDirt; // 8 x 5
-    public BlockState[][] bodyDirt; // 5 x 5
-    public BlockState[][] bodyTopDirt; // 5 x 5
-    public BlockState[][] tailDirt; // 2 x 2
-    public BlockState[][] flukeDirt; // 4 x 4
 
-    public final Vec3[] seatOffsets = {
-            //head
-            new Vec3(0, 5.5f, 0.0), //sail
-            new Vec3(0, 5.5f, -3.0), //captain
-
-            //body
-            new Vec3(1.5, 5.5f, 0.3),
-            new Vec3(-1.5, 5.5f, 0.3),
-            new Vec3(1.5, 5.5f, -1.75),
-            new Vec3(-1.5, 5.5f, -1.75),
-
-            //fluke
-            new Vec3(0, 1.6f, -0.8)
-    };
-
-    public Vec3[] seats = new Vec3[7];
-    public Vec3[] oldSeats = new Vec3[7];
     public HullbackEntity(EntityType<? extends WaterAnimal> entityType, Level level) {
         super(entityType, level);
 
@@ -182,6 +166,8 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         this.moveControl = new SmoothSwimmingMoveControl(this, 1, 2, 0.1F, 0.1F, true);
         this.lookControl = new SmoothSwimmingLookControl(this, 1);
+        this.bodyControl = new HullbackBodyRotationControl(this);
+
 
         this.nose = new HullbackPartEntity(this, "nose", 5.0F, 5.0F);
         this.head = new HullbackPartEntity(this, "head", 5.0F, 5.0F);
@@ -197,19 +183,32 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         //this.moving_subEntities = new HullbackPartWalkableEntity[]{this.moving_nose, this.moving_head, this.moving_body, this.moving_tail, this.moving_fluke};
         this.setId(ENTITY_COUNTER.getAndAdd(this.subEntities.length + 1) + 1);
 
-        this.prevPartPositions = new Vec3[5];
-        this.partPosition = new Vec3[5];
-        this.partYRot = new float[5];
-        this.partXRot = new float[5];
-        this.oldPartPosition = new Vec3[5];
-        this.oldPartYRot = new float[5];
-        this.oldPartXRot = new float[5];
-        Arrays.fill(partPosition, Vec3.ZERO);
+        this.partManager = new HullbackPartManager(this, this.subEntities);
+        this.partManager.init();
+
+        this.HullbackDirt = new HullbackDirt(this);
+        this.HullbackDirt.init();
+
+        this.hullbackSeatManager = new HullbackSeatManager(this, 
+            DATA_SEAT_0, DATA_SEAT_1, DATA_SEAT_2, DATA_SEAT_3, 
+            DATA_SEAT_4, DATA_SEAT_5, DATA_SEAT_6);
+
+        this.aiManager = new HullbackAIManager(this);
+        this.equipmentManager = new HullbackEquipmentManager(this);
+        this.interactionManager = new HullbackInteractionManager(this);
+        this.controlManager = new HullbackControlManager(this);
+        
+        // Manual registration since registerGoals() is called by super() before aiManager is init
+        this.aiManager.registerGoals();
+
+        this.mouthOpenProgress = 0.0f;
         this.mouthOpenProgress = 0.0f;
         this.currentTarget = this.position();
-        //createInventory();
-        if(!level.isClientSide) initDirt();
-        else initClientDirt();
+        
+        // Manual inventory update since the one in super() was skipped due to null manager
+        this.updateContainerEquipment();
+        
+        this.currentTarget = this.position();
 
         this.stationaryTicks = 60;
     }
@@ -236,11 +235,14 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     }
 
     private static boolean hasSpawnSpace(LevelAccessor level, BlockPos pos) {
-
-        int checkRadius = 10;
-        int heightCheck = 6;
+        // Área de verificação reduzida para permitir mais spawns
+        int checkRadius = 5;   // Reduzido de 10 para 5
+        int heightCheck = 4;   // Reduzido de 6 para 4
 
         AABB spawnCheckArea = new AABB(pos).inflate(checkRadius, heightCheck, checkRadius);
+
+        int solidCount = 0;
+        int maxSolidAllowed = 20;  // Permitir até 20 blocos sólidos (tolerância)
 
         BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
         for (int x = (int)spawnCheckArea.minX; x <= spawnCheckArea.maxX; x++) {
@@ -249,13 +251,16 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                     mutablePos.set(x, y, z);
                     BlockState state = level.getBlockState(mutablePos);
                     if (state.isSolid() && state.getCollisionShape(level, mutablePos) != Shapes.empty()) {
-                        return false;
+                        solidCount++;
+                        if (solidCount > maxSolidAllowed) {
+                            return false;  // Muito obstruído
+                        }
                     }
                 }
             }
         }
 
-        return true;
+        return true;  // Spawn permitido
     }
 
     private static boolean hasNearbyHullbacks(LevelAccessor level, BlockPos pos) {
@@ -274,139 +279,9 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
 
 
-    // NEW: Method to guarantee synchronization
-    public void forceEquipmentSync() {
-        if (!this.level().isClientSide) {
-            this.entityData.set(DATA_ARMOR, this.inventory.getItem(INV_SLOT_ARMOR).copy());
-            this.entityData.set(DATA_CROWN_ID, this.inventory.getItem(INV_SLOT_CROWN).copy());
-            this.setFlag(4, !this.inventory.getItem(INV_SLOT_SADDLE).isEmpty());
-            sendHurtSyncPacket();
-        }
-    }
+    // forceEquipmentSync removed (redundant with HullbackEquipmentManager)
 
-    private void initClientDirt() {
-        headDirt = new BlockState[8][5];
-        headTopDirt = new BlockState[8][5];
-        bodyDirt = new BlockState[6][5];
-        bodyTopDirt = new BlockState[6][5];
-        tailDirt = new BlockState[4][2];
-        flukeDirt = new BlockState[3][5];
 
-        for (BlockState[][] array : new BlockState[][][]{headDirt, headTopDirt, bodyDirt, bodyTopDirt, tailDirt, flukeDirt}) {
-            for (int x = 0; x < array.length; x++) {
-                for (int y = 0; y < array[x].length; y++) {
-                    array[x][y] = Blocks.AIR.defaultBlockState();
-                }
-            }
-        }
-    }
-
-    private void initDirt() {
-        headDirt = new BlockState[8][5];
-        headTopDirt = new BlockState[8][5];
-        bodyDirt = new BlockState[6][5];
-        bodyTopDirt = new BlockState[6][5];
-        tailDirt = new BlockState[4][2];
-        flukeDirt = new BlockState[3][5];
-
-        for (BlockState[][] array : new BlockState[][][]{headDirt, headTopDirt, bodyDirt, bodyTopDirt, tailDirt, flukeDirt}) {
-            for (int x = 0; x < array.length; x++) {
-                for (int y = 0; y < array[x].length; y++) {
-                    array[x][y] = Blocks.AIR.defaultBlockState();
-                }
-            }
-        }
-
-        fillDirtArray(headDirt, true, getPartName(head));
-        fillDirtArray(headTopDirt, false, getPartName(head));
-        fillDirtArray(bodyDirt, true, getPartName(body));
-        fillDirtArray(bodyTopDirt, false, getPartName(body));
-        fillDirtArray(tailDirt, true, getPartName(tail));
-        fillDirtArray(flukeDirt, true, getPartName(tail));
-
-        syncDirtToClients();
-    }
-
-    private void fillDirtArray(BlockState[][] array, boolean bottom, String partName) {
-        List<HullbackDirtManager.HullbackDirtEntry> candidates = getCandidates(bottom, partName);
-
-        for (int x = 0; x < array.length; x++) {
-            for (int y = 0; y < array[x].length; y++) {
-                array[x][y] = Blocks.AIR.defaultBlockState();
-                if (candidates.isEmpty()) continue;
-                List<HullbackDirtManager.HullbackDirtEntry> successful = new ArrayList<>();
-
-                for (HullbackDirtManager.HullbackDirtEntry entry : candidates) {
-                    if (random.nextDouble() < entry.placementChance()) successful.add(entry);
-                }
-
-                if (!successful.isEmpty()) {
-                    HullbackDirtManager.HullbackDirtEntry chosen = successful.get(random.nextInt(successful.size()));
-                    array[x][y] = applyProperties(chosen.block(), chosen.blockProperties());
-                }
-            }
-        }
-    }
-
-    public static BlockState applyProperties(Block block, @Nullable Map<String, String> props) {
-        BlockState state = block.defaultBlockState();
-        if (props == null || props.isEmpty()) return state;
-
-        for (Map.Entry<String, String> entry : props.entrySet()) {
-            String name = entry.getKey();
-            String value = entry.getValue();
-
-            Property<?> property = state.getBlock().getStateDefinition().getProperty(name);
-            if (property == null) {
-                Whaleborne.LOGGER.warn("Unknown blockstate property '{}' for block {}", name, block);
-                continue;
-            }
-
-            state = setProperty(state, property, value);
-        }
-
-        return state;
-    }
-
-    private static <T extends Comparable<T>> BlockState setProperty(BlockState state, Property<T> property, String value) {
-        Optional<T> parsed = property.getValue(value);
-        if (parsed.isPresent()) return state.setValue(property, parsed.get());
-        Whaleborne.LOGGER.warn("Invalid value '{}' for property '{}' (allowed: {})", value, property.getName(), property.getPossibleValues());
-        return state;
-    }
-
-    public BlockState[][] getDirtArray(int index, boolean bottom){
-        if(bottom){
-            switch (index){
-                case 2: return bodyDirt;
-                case 3: return tailDirt;
-                case 4: return flukeDirt;
-                default: return headDirt;
-            }
-        }
-        else {
-            if (index == 0)
-                return headTopDirt;
-            else return bodyTopDirt;
-        }
-    }
-
-    public void syncDirtToClients() {
-        if (!level().isClientSide) {
-            syncDirtArray(headDirt, 0, true);
-            syncDirtArray(headTopDirt, 1, false);
-            syncDirtArray(bodyDirt, 2, true);
-            syncDirtArray(bodyTopDirt, 3, false);
-            syncDirtArray(tailDirt, 4, true);
-            syncDirtArray(flukeDirt, 5, true);
-        }
-    }
-
-    public void syncDirtArray(BlockState[][] array, int arrayType, boolean isBottom) {
-        if (!level().isClientSide) {
-            PacketDistributor.sendToPlayersTrackingEntity(this, new SyncHullbackDirtPayload(getId(), array, arrayType, isBottom));
-        }
-    }
 
     public static AttributeSupplier.Builder createAttributes() {
         return Mob.createMobAttributes().add(Attributes.MAX_HEALTH, 100.0).add(Attributes.MOVEMENT_SPEED, 1.2000000476837158).add(Attributes.ATTACK_DAMAGE, 3.0).add(Attributes.KNOCKBACK_RESISTANCE, 1.0);
@@ -415,51 +290,18 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     protected int getInventorySize() {
         return 3;
     }
-    protected void createInventory() {
-        SimpleContainer simplecontainer = this.inventory;
-        this.inventory = new SimpleContainer(this.getInventorySize());
-        if (simplecontainer != null) {
-            simplecontainer.removeListener(this);
-            int i = Math.min(simplecontainer.getContainerSize(), this.inventory.getContainerSize());
-
-            for(int j = 0; j < i; ++j) {
-                ItemStack itemstack = simplecontainer.getItem(j);
-                if (!itemstack.isEmpty()) {
-                    this.inventory.setItem(j, itemstack.copy());
-                }
-            }
-        }
-
-        this.inventory.addListener(this);
-        this.updateContainerEquipment();
-        this.itemHandler = new InvWrapper(this.inventory);
+    protected int getSaddleSlot() {
+        return INV_SLOT_SADDLE;
     }
+    // Inventory created in AbstractWhale
     public void updateContainerEquipment() {
-        ItemStack crown = this.inventory.getItem(INV_SLOT_CROWN);
-        ItemStack armor = this.inventory.getItem(INV_SLOT_ARMOR);
-        ItemStack saddle = this.inventory.getItem(INV_SLOT_SADDLE);
-        boolean hasSaddle = !saddle.isEmpty();
-        
-        // MODIFIED: Create copies to avoid reference problems
-        this.entityData.set(DATA_CROWN_ID, crown.isEmpty() ? ItemStack.EMPTY : crown.copy());
-        this.entityData.set(DATA_ARMOR, armor.isEmpty() ? ItemStack.EMPTY : armor.copy());
-        this.setFlag(4, hasSaddle);
-        
-        // NEW: Sync immediately if on server
-        if (!this.level().isClientSide) {
-            sendHurtSyncPacket();
+        if (equipmentManager != null) {
+            equipmentManager.updateContainerEquipment();
         }
     }
     public void containerChanged(Container invBasic) {
-        ItemStack itemstack = this.getArmor();
-        boolean flag = this.isSaddled();
-        this.updateContainerEquipment();
-        ItemStack itemstack1 = this.getArmor();
-        if (this.tickCount > 20 && !flag && this.isSaddled()) {
-            this.playSound(this.getSaddleSoundEvent(), 0.5F, 1.0F);
-        }
-        if (this.tickCount > 20 && itemstack != itemstack1) {
-            this.playSound(SoundEvents.HORSE_ARMOR, 0.5F, 1.0F);
+        if (equipmentManager != null) {
+            equipmentManager.containerChanged(invBasic);
         }
     }
 
@@ -469,52 +311,22 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     }
 
     public ItemStack getArmor() {
-        return this.entityData.get(DATA_ARMOR);
+        return equipmentManager.getArmor();
     }
     public ItemStack getCrown() {
-        return this.entityData.get(DATA_CROWN_ID);
-    }
-    public boolean isTamed() {
-        return this.getFlag(2);
-    }
-    public void setTamed(boolean tamed) {
-
-        this.setPersistenceRequired();
-        this.setFlag(2, tamed);
+        return equipmentManager.getCrown();
     }
 
-    public SimpleContainer getInventory() {
-        return inventory;
-    }
-
-    public boolean isSaddleable() {
-        return this.isAlive() && this.isTamed();
-    }
 
     @Override
     public void equipSaddle(ItemStack stack, @Nullable SoundSource source) {
-        this.inventory.setItem(INV_SLOT_SADDLE, stack);
-    }
-    public boolean isSaddled() {
-        return this.getFlag(4);
+        equipmentManager.equipSaddle(stack, source);
     }
 
-    protected boolean getFlag(int flagId) {
-        return ((Byte)this.entityData.get(DATA_ID_FLAGS) & flagId) != 0;
-    }
 
-    protected void setFlag(int flagId, boolean value) {
-        byte b0 = (Byte)this.entityData.get(DATA_ID_FLAGS);
-        if (value) {
-            this.entityData.set(DATA_ID_FLAGS, (byte)(b0 | flagId));
-        } else {
-            this.entityData.set(DATA_ID_FLAGS, (byte)(b0 & ~flagId));
-        }
-    }
     @Override
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         super.defineSynchedData(builder);
-        builder.define(DATA_ID_FLAGS, (byte)0);
 
         builder.define(DATA_SEAT_0, Optional.empty());
         builder.define(DATA_SEAT_1, Optional.empty());
@@ -559,8 +371,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
         compound.put("Items", listtag);
-        compound.putByte("Flags", this.entityData.get(DATA_ID_FLAGS));
-        Whaleborne.LOGGER.info("Saved Flags: {}", this.entityData.get(DATA_ID_FLAGS));
+
 
         CompoundTag hasMobiusSpawned = new CompoundTag();
         hasMobiusSpawned.putBoolean("HasMobiusSpawned", HAS_MOBIUS_SPAWNED);
@@ -575,28 +386,16 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
             if (occupant.isPresent()) {
                 compound.putUUID(seatKey, occupant.get());
-
-                //if (!compound.hasUUID(seatKey)) {
-                //    System.out.println("Failed to write UUID for seat: " + i);
-                //}
             }
         }
-        compound.put("HeadDirt", saveDirtArray(headDirt));
-        compound.put("HeadTopDirt", saveDirtArray(headTopDirt));
-
-        compound.put("BodyDirt", saveDirtArray(bodyDirt));
-        compound.put("BodyTopDirt", saveDirtArray(bodyTopDirt));
-
-        compound.put("tailDirt", saveDirtArray(tailDirt));
-        compound.put("flukeDirt", saveDirtArray(flukeDirt));
+        this.HullbackDirt.addAdditionalSaveData(compound);
     }
     public void readAdditionalSaveData(CompoundTag compound) {
         super.readAdditionalSaveData(compound);
         
         Whaleborne.LOGGER.info("HullbackEntity.readAdditionalSaveData called for ID: {}", this.getId());
         
-        // FIX: Initialize inventory BEFORE reading NBT data
-        this.createInventory();
+        // Inventory initialized in AbstractWhale
         
         ListTag items = compound.getList("Items", 10);
         Whaleborne.LOGGER.info("Loading {} items from NBT.", items.size());
@@ -613,10 +412,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
 
-        this.entityData.set(DATA_ID_FLAGS, compound.getByte("Flags"));
         HAS_MOBIUS_SPAWNED = compound.getBoolean("HasMobiusSpawned");
-        
-        Whaleborne.LOGGER.info("Flags loaded: {}", compound.getByte("Flags"));
 
         boolean hasAnySeatData = IntStream.range(0, 7)
                 .anyMatch(i -> compound.hasUUID("Seat_" + i));
@@ -631,40 +427,12 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
 
-        if (compound.contains("HeadDirt")) {
-            headDirt = loadDirtArray(compound.getCompound("HeadDirt"));
-        }
-        if (compound.contains("HeadTopDirt")) {
-            headTopDirt = loadDirtArray(compound.getCompound("HeadTopDirt"));
-        }
-        if (compound.contains("BodyDirt")) {
-            bodyDirt = loadDirtArray(compound.getCompound("BodyDirt"));
-        }
-        if (compound.contains("BodyTopDirt")) {
-            bodyTopDirt = loadDirtArray(compound.getCompound("BodyTopDirt"));
-        }
-        if (compound.contains("TailDirt")) {
-            tailDirt = loadDirtArray(compound.getCompound("TailDirt"));
-        }
-        if (compound.contains("FlukeDirt")) {
-            flukeDirt = loadDirtArray(compound.getCompound("FlukeDirt"));
-        }
-
-        syncDirtToClients();
+        this.HullbackDirt.readAdditionalSaveData(compound);
         this.updateContainerEquipment();
     }
 
-    private EntityDataAccessor<Optional<UUID>> getSeatAccessor(int seatIndex) {
-        return switch (seatIndex) {
-
-            case 0 -> DATA_SEAT_0;
-            case 1 -> DATA_SEAT_1;
-            case 2 -> DATA_SEAT_2;
-            case 3 -> DATA_SEAT_3;
-            case 4 -> DATA_SEAT_4;
-            case 5 -> DATA_SEAT_5;
-            default -> DATA_SEAT_6;
-        };
+    public EntityDataAccessor<Optional<UUID>> getSeatAccessor(int seatIndex) {
+        return hullbackSeatManager.getSeatAccessor(seatIndex);
     }
 
     private CompoundTag saveDirtArray(BlockState[][] array) {
@@ -729,6 +497,10 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
     public boolean isPickable() {
         return false;
+    }
+
+    public HullbackPartManager getPartManager() {
+        return this.partManager;
     }
 
 
@@ -801,8 +573,9 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         mouthTarget = 0.2f;
 
+
         for (int side : new int[]{-1, 1}) {
-            Vec3 particlePos = partPosition[1].add(new Vec3(3.5*side, 2, 0).yRot(-partYRot[1]));
+            Vec3 particlePos = partManager.partPosition[1].add(new Vec3(3.5*side, 2, 0).yRot(-partManager.partYRot[1]));
             double x = particlePos.x;
             double y = particlePos.y;
             double z = particlePos.z;
@@ -851,18 +624,14 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     }
 
     protected void registerGoals() {
-        this.goalSelector.addGoal(0, new HullbackBreathAirGoal(this));
-        this.goalSelector.addGoal(1, new HullbackTryFindWaterGoal(this, true));
-        this.goalSelector.addGoal(2, new HullbackTryFindWaterGoal(this, false));
-        this.goalSelector.addGoal(2, new HullbackRandomSwimGoal(this, 1.0, 10));
-        this.goalSelector.addGoal(0, new HullbackApproachPlayerGoal(this, 0.01f));
-        this.goalSelector.addGoal(0, new HullbackArmorPlayerGoal(this, 0.005f));
-        this.goalSelector.addGoal(3, new FollowBoatGoal(this));
+        if (aiManager != null) {
+            aiManager.registerGoals();
+        }
     }
 
     public void moveEntitiesOnTop(int index) {
         HullbackPartEntity part = getSubEntities()[index];
-        Vec3 offset = partPosition[index].subtract(oldPartPosition[index]);
+        Vec3 offset = partManager.partPosition[index].subtract(partManager.oldPartPosition[index]);
 
         if (offset.length() <= 0) return;
         for (Entity entity : this.level().getEntities(part, part.getBoundingBox().inflate(0F, 0.01F, 0F), EntitySelector.NO_SPECTATORS.and((entity) -> (!entity.isPassenger())))) {
@@ -881,334 +650,28 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
 
     private List<HullbackDirtManager.HullbackDirtEntry> getCandidates(boolean bottom, String partName) {
-        String key = partName + "_" + (bottom ? "bottom" : "top");
-        return Whaleborne.PROXY.getHullbackDirtManager().get().stream()
-                .filter(e -> e.placements().contains(key))
-                .toList();
+        return interactionManager.getCandidates(bottom, partName);
     }
 
     public InteractionResult mobInteract(Player player, InteractionHand hand) {
-        if (this.isVehicle()) {
-            return super.mobInteract(player, hand);
-        }
-        return super.mobInteract(player, hand);
+        return interactionManager.mobInteract(player, hand);
     }
 
     public InteractionResult interactDebug(Player player, InteractionHand hand){
-        if(!isTamed()){
-            setTamed(true);
-            this.setPersistenceRequired();
-            //equipSaddle();
-            return InteractionResult.SUCCESS;
-        }
-
-        System.out.println(level() + ": Seat Data: ");
-        for(int i = 0; i<7 ; i++){
-            System.out.println("Seat " + i + ": " + this.entityData.get(getSeatAccessor(i)));
-        }
-
-        System.out.println(getPassengers());
-
-        return InteractionResult.SUCCESS;
+        return interactionManager.interactDebug(player, hand);
     }
     public InteractionResult interactRide(Player player, InteractionHand hand, int seatIndex, @Nullable EntityType<?> entityType) {
-        if (seatIndex < 0 || seatIndex >= 7) {
-            return InteractionResult.FAIL;
-        }
-
-        if (getArmorProgress() < 0.5) {
-            return InteractionResult.FAIL;
-        }
-
-        if (!isSaddled()) {
-            mouthTarget = 1.0f;
-            playSound(WBSoundRegistry.HULLBACK_MAD.get());
-            return InteractionResult.PASS;
-        }
-
-        Optional<UUID> currentSeatOccupant = this.entityData.get(getSeatAccessor(seatIndex));
-        if (currentSeatOccupant.isPresent()) {
-            if (currentSeatOccupant.get().equals(player.getUUID())) {
-                return InteractionResult.PASS;
-            }
-            return InteractionResult.FAIL;
-        }
-
-        if (entityType != null) {
-            return placeEquipment(player, hand, seatIndex, entityType);
-        }
-
-        return mountPlayer(player, seatIndex);
-        //return super.interact(player, hand);
+        return interactionManager.interactRide(player, hand, seatIndex, entityType);
     }
 
-    private InteractionResult placeEquipment(Player player, InteractionHand hand, int seatIndex, EntityType<?> entityType) {
-//        if (level().isClientSide) {
-//            return InteractionResult.SUCCESS;
-//        }
-
-        Entity entity = entityType.create(this.level());
-        if (entity == null) {
-            return InteractionResult.FAIL;
-        }
-
-        Vec3 seatPos = seats[seatIndex];
-        entity.moveTo(seatPos.x, seatPos.y + 1, seatPos.z, this.getYRot(), 0);
-        this.level().addFreshEntity(entity);
-
-        if (entity.startRiding(this, true)) {
-            assignSeat(seatIndex, entity);
-            if (!player.getAbilities().instabuild) {
-                player.getItemInHand(hand).shrink(1);
-            }
-            return InteractionResult.SUCCESS;
-        }
-
-        //entity.discard();
-        return InteractionResult.FAIL;
-    }
-    private InteractionResult mountPlayer(Player player, int seatIndex) {
-        for (int i = 0; i < 7; i++) {
-            Optional<UUID> occupant = this.entityData.get(getSeatAccessor(i));
-            if (occupant.isPresent() && occupant.get().equals(player.getUUID())) {
-                player.stopRiding();
-            }
-        }
-
-        if (player.startRiding(this, true)) {
-            assignSeat(seatIndex, player);
-            return InteractionResult.SUCCESS;
-        } else {
-            //player.stopRiding();
-            return InteractionResult.FAIL;
-        }
-    }
     public InteractionResult interactClean(Player player, InteractionHand hand, HullbackPartEntity part, Boolean top) {
-        mouthTarget = 0.2f;
-        if ((handleVegetationRemoval(player, hand, part, top)) == InteractionResult.PASS) {
-
-            for (BlockState[] states : headTopDirt) {
-                for (BlockState state : states) {
-                    if (state != Blocks.AIR.defaultBlockState()) {
-                        mouthTarget = 0.5f;
-                        playSound(WBSoundRegistry.HULLBACK_MAD.get());
-                        return InteractionResult.SUCCESS;
-                    }
-                }
-            }
-            for (BlockState[] blockStates : bodyTopDirt) {
-                for (BlockState blockState : blockStates) {
-                    if (blockState != Blocks.AIR.defaultBlockState()) {
-                        mouthTarget = 0.5f;
-                        playSound(WBSoundRegistry.HULLBACK_MAD.get());
-                        return InteractionResult.SUCCESS;
-                    }
-                }
-            }
-
-            setTamed(true);
-            this.setPersistenceRequired();
-            mouthTarget = 0.1f;
-            playSound(WBSoundRegistry.HULLBACK_HAPPY.get());
-
-            for (int side : new int[]{-1, 1}) {
-                Vec3 particlePos = partPosition[1].add(new Vec3(4*side, 2, 0).yRot(partYRot[1]));
-                double x = particlePos.x;
-                double y = particlePos.y;
-                double z = particlePos.z;
-
-                if (this.level() instanceof ServerLevel serverLevel) {
-                    serverLevel.sendParticles(ParticleTypes.HEART, x, y, z, 10, 0.5, 0.5, 0.5, 0.02);
-                }
-            }
-
-            return InteractionResult.SUCCESS;
-        }
-        return InteractionResult.SUCCESS;
-    }
-
-    private InteractionResult handleVegetationRemoval(Player player, InteractionHand hand, HullbackPartEntity part, boolean top) {
-        BlockState[][] dirtArray = getDirtArrayForPart(part, top);
-        ItemStack held = player.getItemInHand(hand);
-
-        for (int x = 0; x < dirtArray.length; x++) {
-            for (int y = 0; y < dirtArray[x].length; y++) {
-                BlockState state = dirtArray[x][y];
-                if (state == null || state.isAir()) continue;
-
-                HullbackDirtManager.HullbackDirtEntry entry = HullbackDirtManager.DATA.stream().filter(e -> e.matches(state)).findFirst().orElse(null);
-
-                if (entry == null) continue;
-
-                boolean removable = entry.removableWith().contains("any") || entry.removableWith().contains(getToolType(held));
-
-                if (removable) {
-                    if (level() instanceof ServerLevel serverLevel) {
-                        float yOffset = top ? 5 : -1;
-
-                        serverLevel.sendParticles(
-                                new BlockParticleOption(ParticleTypes.BLOCK, applyProperties(entry.block(), entry.blockProperties())),
-                                position().x, position().y + yOffset, position().z,
-                                60,
-                                3,0.2,-3
-                                ,0);
-
-                        dirtArray[x][y] = Blocks.AIR.defaultBlockState();
-
-                        if (entry.drop() != Items.AIR) {
-                            for (int i = 0; i < entry.dropAmount(); i++) {
-                                ItemStack dropStack = new ItemStack(entry.drop());
-                                double px = part.getX() + y - part.getBbWidth() / 2.0;
-                                double py = part.getY() + (top ? part.getBbHeight() + 0.5f : -0.5f);
-                                double pz = part.getZ() - x + part.getBbWidth() / 2.0;
-                                ItemEntity itemEntity = new ItemEntity(this.level(), px, py, pz, dropStack);
-                                this.level().addFreshEntity(itemEntity);
-                            }
-                        }
-
-                        if (!player.isCreative()) {
-                            player.getItemInHand(hand).hurtAndBreak(1, player, hand == InteractionHand.MAIN_HAND ? net.minecraft.world.entity.EquipmentSlot.MAINHAND : net.minecraft.world.entity.EquipmentSlot.OFFHAND);
-                        }
-
-                        if (entry.soundOnRemove() != null) {
-                            this.level().playSound(null, player.getX(), player.getY(), player.getZ(), entry.soundOnRemove(), SoundSource.PLAYERS, 1.0F, 1.0f);
-                        } else {
-                            this.level().playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.SHEEP_SHEAR, SoundSource.PLAYERS, 1.0F, 1.0f);
-                        }
-
-                        mouthTarget = 1.0f;
-                        syncDirtToClients();
-                    } else {
-                        dirtArray[x][y] = Blocks.AIR.defaultBlockState();
-                    }
-                    return InteractionResult.SUCCESS;
-                }
-            }
-        }
-
-        return InteractionResult.PASS;
+        return interactionManager.interactClean(player, hand, part, top);
     }
 
     public InteractionResult interactArmor(Player player, InteractionHand hand, HullbackPartEntity part, Boolean top) {
-        ItemStack heldItem = player.getItemInHand(hand);
-
-        if (heldItem.getItem() instanceof SaddleItem) {
-            if (!this.isSaddled()) {
-                if (this.isTamed()) {
-                    ItemStack saddleToEquip = heldItem.copy();
-                    saddleToEquip.setCount(1);
-                    this.equipSaddle(saddleToEquip, SoundSource.PLAYERS);
-                    if (!player.getAbilities().instabuild) {
-                        heldItem.shrink(1);
-                    }
-                    this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
-                            SoundEvents.HORSE_SADDLE,
-                            SoundSource.PLAYERS, 1.0F, 0.1F);
-                    return InteractionResult.SUCCESS;
-                } else {
-                    mouthTarget = 0.3f;
-                    playSound(WBSoundRegistry.HULLBACK_MAD.get());
-                    return InteractionResult.PASS;
-                }
-            }
-            return InteractionResult.PASS;
-        }
-        else if (heldItem.is(WBTagRegistry.HULLBACK_EQUIPPABLE)) {
-            if (!isSaddled()) {
-                mouthTarget = 0.3f;
-                playSound(WBSoundRegistry.HULLBACK_MAD.get());
-                return InteractionResult.PASS;
-            }
-
-            ItemStack currentArmor = this.inventory.getItem(INV_SLOT_ARMOR);
-
-            if (currentArmor.getCount() == currentArmor.getMaxStackSize()){
-                mouthTarget = 0.3f;
-                playSound(WBSoundRegistry.HULLBACK_MAD.get());
-                return InteractionResult.PASS;
-            }
-
-            if (currentArmor.getCount() < currentArmor.getMaxStackSize()) {
-                if (currentArmor.isEmpty()) {
-                    ItemStack newArmor = new ItemStack(heldItem.getItem(), 1);
-                    this.inventory.setItem(INV_SLOT_ARMOR, newArmor);
-                    updateContainerEquipment();
-                } else {
-                    if (heldItem.getItem() == currentArmor.getItem()) {
-                        if (player.isCreative()) {
-                            currentArmor.setCount(64);
-                        } else {
-                            currentArmor.grow(1);
-                        }
-
-                        this.entityData.set(DATA_ARMOR, currentArmor.copy());
-                    } else {
-                        mouthTarget = 0.3f;
-                        playSound(WBSoundRegistry.HULLBACK_MAD.get());
-                        return InteractionResult.PASS;
-                    }
-                }
-
-                if (!player.getAbilities().instabuild) {
-                    heldItem.shrink(1);
-                }
-
-                this.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                        SoundEvents.WOOD_PLACE,
-                        SoundSource.PLAYERS, 1.0F, 1.0F);
-                this.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                        SoundEvents.ITEM_FRAME_REMOVE_ITEM,
-                        SoundSource.PLAYERS, 1.0F, 0.5f + ((float) currentArmor.getCount() /64));
-                if(currentArmor.getCount()==64){
-                    this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
-                            SoundEvents.ZOMBIE_BREAK_WOODEN_DOOR,
-                            SoundSource.PLAYERS, 2.0F, 1.0F);
-                    playSound(WBSoundRegistry.HULLBACK_TAME.get());
-
-                }
-                this.updateContainerEquipment();
-                return InteractionResult.SUCCESS;
-            }
-            return InteractionResult.PASS;
-        }
-        return InteractionResult.PASS;
+        return interactionManager.interactArmor(player, hand, part, top);
     }
-
-    private String getPartName(HullbackPartEntity part) {
-        if (part == this.head) return "head";
-        if (part == this.body) return "body";
-        if (part == this.tail) return "tail";
-        if (part == this.fluke) return "fluke";
-        if (part == this.nose) return "nose";
-        return "body";
-    }
-
-    private String getToolType(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return "hand";
-        Item item = stack.getItem();
-        if (item instanceof ShearsItem) return "shears";
-        if (item instanceof AxeItem || stack.is(ItemTags.AXES)) return "axe";
-        if (item instanceof PickaxeItem || stack.is(ItemTags.PICKAXES)) return "pickaxe";
-        if (item instanceof HoeItem || stack.is(ItemTags.HOES)) return "hoe";
-        if (item instanceof ShovelItem || stack.is(ItemTags.SHOVELS)) return "shovel";
-        if (item instanceof SwordItem || stack.is(ItemTags.SWORDS)) return "sword";
-        return "hand";
-    }
-
-    private BlockState[][] getDirtArrayForPart(HullbackPartEntity part, boolean top) {
-        if (part == this.head) {
-            return top ? this.headTopDirt : this.headDirt;
-        } else if (part == this.body) {
-            return top ? this.bodyTopDirt : this.bodyDirt;
-        } else if (part == this.fluke) {
-            return this.flukeDirt;
-        } else if (part == this.nose) {
-            return top ? this.headTopDirt : this.headDirt;
-        }
-        return this.tailDirt;
-    }
-
-
+ 
     public void setMouthTarget(float target) {
         this.mouthTarget = target;
     }
@@ -1233,7 +696,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         super.tickDeath();
     }
 
-    private void sendHurtSyncPacket() {
+    public void sendHurtSyncPacket() {
         if (!this.level().isClientSide) {
             PacketDistributor.sendToPlayersTrackingEntity(this, new HullbackHurtPayload(
                     this.getId(),
@@ -1249,20 +712,20 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         super.onAddedToLevel();
         
         // Initialize part positions immediately
-        if (prevPartPositions[0] == null) {
-            for (int i = 0; i < prevPartPositions.length; i++) {
-                prevPartPositions[i] = position();
-                partPosition[i] = position();
-                oldPartPosition[i] = position();
+        if (partManager.prevPartPositions[0] == null) {
+            for (int i = 0; i < partManager.prevPartPositions.length; i++) {
+                partManager.prevPartPositions[i] = position();
+                partManager.partPosition[i] = position();
+                partManager.oldPartPosition[i] = position();
             }
         }
 
         // Calculate initial part positions
-        updatePartPositions();
+        partManager.updatePartPositions();
 
         // Calculate initial seats
         if (isTamed()) {
-            calculateSeats();
+            partManager.calculateSeats();
         }
         
         // NEW: Sync equipment when adding to world
@@ -1291,31 +754,10 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     public void tick() {
         super.tick();
 
-        if (this.level().isClientSide && this.tickCount % 40 == 0) {
-            LivingEntity controller = this.getControllingPassenger();
-            System.out.println("HullbackTick: DEBUG | Controller=" + controller + " | IsPlayer=" + (controller instanceof Player));
-            if (controller instanceof Player p) {
-                System.out.println("HullbackTick: DEBUG | LocalPlayer=" + p.isLocalPlayer());
-            }
-        }
+
         
-        if (this.level().isClientSide && this.getControllingPassenger() instanceof Player player && player.isLocalPlayer()) {
-             boolean modLoaded = net.neoforged.fml.ModList.get().isLoaded("leawind_third_person");
-             net.minecraft.client.CameraType camType = net.minecraft.client.Minecraft.getInstance().options.getCameraType();
-             boolean thirdPerson = !camType.isFirstPerson();
-             boolean shouldVector = modLoaded && thirdPerson;
-             
-             if (this.tickCount % 20 == 0) {
-                 System.out.println("HullbackTick: Camera=" + camType + " Mod=" + modLoaded + " Should=" + shouldVector + " Current=" + this.entityData.get(DATA_VECTOR_CONTROL));
-             }
-             
-             if (shouldVector != this.entityData.get(DATA_VECTOR_CONTROL)) {
-                 // Send Packet
-                 net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.fruityspikes.whaleborne.network.ToggleControlPayload(this.getId(), shouldVector));
-                 // Predict locally to avoid lag
-                 this.entityData.set(DATA_VECTOR_CONTROL, shouldVector);
-                 System.out.println("HullbackTick: Sending Packet " + shouldVector);
-             }
+        if (this.level().isClientSide) {
+             controlManager.clientHandleControlState();
         }
         
         // NEW: Single validation after loading from NBT
@@ -1333,7 +775,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             
             // Sync to all clients
             sendHurtSyncPacket();
-            syncDirtToClients();
+            HullbackDirt.syncDirtToClients();
         }
 
         if(tickCount % 40 == 0) {
@@ -1370,8 +812,9 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         }
 
         // MOVED TO BEFORE: Update part positions BEFORE any validation
-        setOldPosAndRots();
-        updatePartPositions();
+      
+        partManager.setOldPosAndRots();
+        partManager.updatePartPositions();
 
         if (stationaryTicks>0){
             stopMoving();
@@ -1419,7 +862,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         }
 
         // MOVED: rotatePassengers now comes AFTER updatePartPositions
-        rotatePassengers();
+        hullbackSeatManager.rotatePassengers();
 
         if(this.getSubEntities()[1].isEyeInFluidType(Fluids.WATER.getFluidType()) && this.tickCount % 80 == 0)
             this.heal(0.25f);
@@ -1430,9 +873,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         updateMouthOpening();
         
-        if (this.level().isClientSide) {
-             clientHandleControlState();
-        }
+
 
         LivingEntity controller = getControllingPassenger();
         
@@ -1440,47 +881,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
              // Let getRiddenInput handle movement. Just ensure basic things here if needed.
         }
 
-        if (false && controller instanceof Player player) { // DISABLED logic, moved to clientHandleControlState / getRiddenInput
-            float f = player.xxa * 0.5F;
-            float f1 = player.zza;
-            
-            // Check overrides locally
-            boolean vectorControl = this.entityData.get(DATA_VECTOR_CONTROL);
-            if (this.level().isClientSide) {
-                 try {
-                     boolean isFirstPerson = net.minecraft.client.Minecraft.getInstance().options.getCameraType().isFirstPerson();
-                     // Only apply failsafe if THIS player is the one controlling
-                     if (player == net.minecraft.client.Minecraft.getInstance().player) {
-                         if (this.tickCount % 40 == 0) {
-                            System.err.println("HullbackControl: IsFirstPerson=" + isFirstPerson + " | Vector=" + vectorControl);
-                         }
-                         if (isFirstPerson) {
-                             vectorControl = false;
-                             // Force Sync to Server if it thinks otherwise
-                             if (this.entityData.get(DATA_VECTOR_CONTROL)) {
-                                 if (this.tickCount % 10 == 0) System.err.println("HullbackControl: Sending Force-Tank Packet");
-                                 net.neoforged.neoforge.network.PacketDistributor.sendToServer(new com.fruityspikes.whaleborne.network.ToggleControlPayload(this.getId(), false));
-                             }
-                         }
-                     }
-                 } catch (Exception e) {
-                 }
-            }
 
-            // Only use vector control if enabled
-            if (vectorControl) {
-                 float inputMag = Mth.sqrt(f * f + f1 * f1);
-                 
-                 if (inputMag > 0.01) {
-                     float targetYaw = player.getYRot() - (float)(Mth.atan2(player.xxa, player.zza) * (180D / Math.PI));
-                     setYRot(Mth.rotLerp(0.1f, getYRot(), targetYaw));
-                 }
-            } else {
-                 if (player.xxa != 0) {
-                     setYRot(Mth.rotLerp(0.8f, getYRot(), getYRot() - player.xxa * 5.0f)); // Multiplier to make it responsive
-                 }
-            }
-        }
 
         if (this.tickCount % 80 == 0)
             mouthTarget = 0;
@@ -1504,37 +905,43 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             validateAssignments();
 
         if (tickCount == 10)
-            syncDirtToClients();
+            HullbackDirt.syncDirtToClients();
 
-        yHeadRot = yBodyRot + (partYRot[0] - partYRot[4]) * 1.5f;
+        yHeadRot = yBodyRot + (partManager.partYRot[0] - partManager.partYRot[4]) * 1.5f;
 
         // Use calculateSeats method
-        if (isTamed() && partPosition!=null && partYRot!=null && partXRot!=null){
-            calculateSeats();
+        // Calculate seats only if tamed
+        if (isTamed() && partManager.partPosition != null && partManager.partYRot != null && partManager.partXRot != null) {
+            partManager.calculateSeats();
         }
 
-        if(!level().isClientSide){
-            randomTickDirt(headDirt, true, getPartName(head));
-            randomTickDirt(bodyDirt, true, getPartName(body));
-            randomTickDirt(tailDirt, true, getPartName(tail));
-            randomTickDirt(flukeDirt, true, getPartName(fluke));
+        if (!level().isClientSide) {
+            // Bottom dirt always ticks
+            if (this.random.nextInt(30000) <= 5) {
+                this.HullbackDirt.randomTick(this.head.name, true);
+                this.HullbackDirt.randomTick(this.body.name, true);
+                this.HullbackDirt.randomTick(this.tail.name, true);
+                this.HullbackDirt.randomTick(this.fluke.name, true);
+                this.HullbackDirt.randomTick(this.nose.name, true);
+            }
 
-            if(!isTamed()){
-                randomTickDirt(headTopDirt, false, getPartName(head));
-                randomTickDirt(bodyTopDirt, false, getPartName(body));
+            // Top dirt ticks only if NOT tamed
+            if (!isTamed()) {
+                if (this.random.nextInt(30000) <= 5) {
+                    this.HullbackDirt.randomTick(this.head.name, false);
+                    this.HullbackDirt.randomTick(this.body.name, false);
+                }
             } else {
-                for (int x = 0; x < headTopDirt.length; x++) {
-                    for (int y = 0; y < headTopDirt[x].length; y++) {
-                        headTopDirt[x][y] = Blocks.AIR.defaultBlockState();
-                    }
-                }
-                for (int x = 0; x < bodyTopDirt.length; x++) {
-                    for (int y = 0; y < bodyTopDirt[x].length; y++) {
-                        bodyTopDirt[x][y] = Blocks.AIR.defaultBlockState();
-                    }
-                }
+                // Determine if we should clear top dirt (e.g. if blocks exist)
+                // Using a simpler check or just clearing periodically/always as per original logic structure
+                // Original: loops and clears. We can call clearTopDirt.
+                // However, doing it every tick might differ from "else" block of a random check?
+                // Original: if (!isTamed) { randomTick } else { clearLoops }
+                // So if tamed, it clears EVERY tick.
+                HullbackDirt.clearTopDirt();
             }
         }
+        updateModifiers();
 
         for (int i=0; i < subEntities.length; i++) {
             subEntities[i].tick();
@@ -1545,7 +952,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                     for (int side : new int[]{-1, 1}) {
                         if(i == 2)
                             offset = 4;
-                        Vec3 particlePos = partPosition[i].add(new Vec3((offset + subEntities[i].getBbWidth() / 2)*side, 0, subEntities[i].getBbWidth() / 2).yRot(partYRot[i]));
+                        Vec3 particlePos = partManager.partPosition[i].add(new Vec3((offset + subEntities[i].getBbWidth() / 2)*side, 0, subEntities[i].getBbWidth() / 2).yRot(partManager.partYRot[i]));
                         double x = particlePos.x;
                         double y = particlePos.y;
                         double z = particlePos.z;
@@ -1560,26 +967,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         }
     }
     
-    // NEW METHOD: Calculate seat positions
-    private void calculateSeats() {
-        if (partPosition == null || partYRot == null || partXRot == null) return;
-        
-        seats[0] = partPosition[0].add((seatOffsets[0]).xRot(partXRot[1] * Mth.DEG_TO_RAD).yRot(-partYRot[1] * Mth.DEG_TO_RAD));
-        seats[1] = partPosition[0].add((seatOffsets[1]).xRot(partXRot[1] * Mth.DEG_TO_RAD).yRot(-partYRot[1] * Mth.DEG_TO_RAD));
-        seats[2] = partPosition[2].add((seatOffsets[2]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
-        seats[3] = partPosition[2].add((seatOffsets[3]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
-        seats[4] = partPosition[2].add((seatOffsets[4]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
-        seats[5] = partPosition[2].add((seatOffsets[5]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
-        seats[6] = partPosition[4].add((seatOffsets[6]).xRot(partXRot[4] * Mth.DEG_TO_RAD).yRot(-partYRot[4] * Mth.DEG_TO_RAD));
 
-        oldSeats[0] = oldPartPosition[0].add((seatOffsets[0]).xRot(oldPartXRot[1] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[1] * Mth.DEG_TO_RAD));
-        oldSeats[1] = oldPartPosition[0].add((seatOffsets[1]).xRot(oldPartXRot[1] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[1] * Mth.DEG_TO_RAD));
-        oldSeats[2] = oldPartPosition[2].add((seatOffsets[2]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
-        oldSeats[3] = oldPartPosition[2].add((seatOffsets[3]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
-        oldSeats[4] = oldPartPosition[2].add((seatOffsets[4]).xRot(oldPartXRot[2] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[2] * Mth.DEG_TO_RAD));
-        oldSeats[5] = oldPartPosition[2].add((seatOffsets[5]).xRot(partXRot[2] * Mth.DEG_TO_RAD).yRot(-partYRot[2] * Mth.DEG_TO_RAD));
-        oldSeats[6] = oldPartPosition[4].add((seatOffsets[6]).xRot(oldPartXRot[4] * Mth.DEG_TO_RAD).yRot(-oldPartYRot[4] * Mth.DEG_TO_RAD));
-    }
 
     public boolean hasAnchorDown() {
         for (Entity passenger : getPassengers()) {
@@ -1591,36 +979,27 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         return false;
     }
 
-    public HullbackWalkableEntity spawnPlatform(int index) {
-        if (!this.isDeadOrDying()) {
-            HullbackWalkableEntity part = new HullbackWalkableEntity(WBEntityRegistry.HULLBACK_PLATFORM.get(), this.level());
-            part.setPos(this.getSubEntities()[index].getX(), this.position().y + 4.7, this.getSubEntities()[index].getZ());
-            if (this.level().addFreshEntity(part)) {
-                return part;
-            }
-        }
-        return null;
-    }
+
 
     public void stopMoving(){
         this.getNavigation().stop();
 
         if (this.moving_nose == null) {
-            this.moving_nose = spawnPlatform(0);
+            this.moving_nose = partManager.spawnPlatform(0);
         } else {
             if (this.tickCount % 5 == 0) {}
                 //this.moving_nose.moveTo(this.nose.getX(), this.getY() + 4.7, this.nose.getZ());
         }
         
         if (this.moving_head == null) {
-            this.moving_head = spawnPlatform(1);
+            this.moving_head = partManager.spawnPlatform(1);
         } else {
             if (this.tickCount % 5 == 0) {}
                 //this.moving_head.moveTo(this.head.getX(), this.getY() + 4.7, this.head.getZ());
         }
         
         if (this.moving_body == null) {
-            this.moving_body = spawnPlatform(2);
+            this.moving_body = partManager.spawnPlatform(2);
         } else {
             if (this.tickCount % 5 == 0) {}
                 //this.moving_body.moveTo(this.body.getX(), this.getY() + 4.7, this.body.getZ());
@@ -1653,112 +1032,7 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 //        }
 //    }
 
-    private void randomTickDirt(BlockState[][] array, boolean bottom, String partName) {
-        if (bottom) {
-            if (this.random.nextInt(30000) <= 5) {
-                int x = getWeightedIndex(array.length, true);
-                int y = getWeightedIndex(array[x].length, true);
 
-                BlockState currentState = array[x][y];
-                HullbackDirtManager.HullbackDirtEntry entry = HullbackDirtManager.DATA.stream().filter(e -> e.matches(currentState)).findFirst().orElse(null);
-                if (entry != null && entry.growth().isPresent() && this.random.nextBoolean()) {
-                    array[x][y] = applyProperties(entry.growth().get(), entry.growthProperties());
-                    this.level().playSound(null, getX(), getY(), getZ(), entry.soundOnGrowth() != null ? entry.soundOnGrowth() : SoundEvents.BONE_MEAL_USE, SoundSource.NEUTRAL, 1.0F, 1.0F);
-                    if (!this.level().isClientSide) syncDirtToClients();
-                    return;
-                }
-
-                if (currentState == null || currentState.isAir()) {
-                    List<HullbackDirtManager.HullbackDirtEntry> candidates = getCandidates(true, partName);
-                    List<HullbackDirtManager.HullbackDirtEntry> successful = new ArrayList<>();
-
-                    for (HullbackDirtManager.HullbackDirtEntry candidate : candidates) {
-                        if (random.nextDouble() < candidate.placementChance()) {
-                            successful.add(candidate);
-                        }
-                    }
-
-                    if (!successful.isEmpty()) {
-                        HullbackDirtManager.HullbackDirtEntry chosen = successful.get(random.nextInt(successful.size()));
-                        array[x][y] = applyProperties(chosen.block(), chosen.blockProperties());
-
-                        if (!this.level().isClientSide) {
-                            this.level().playSound(null, getX(), getY(), getZ(), chosen.soundOnGrowth() != null ? chosen.soundOnGrowth() : SoundEvents.BONE_MEAL_USE, SoundSource.NEUTRAL, 1.0F, 1.0F);
-                            syncDirtToClients();
-                        }
-                    }
-                }
-            }
-
-        } else {
-            if (this.random.nextInt(30000) <= 5) {
-                int x = getWeightedIndex(array.length, true);
-                int y = getWeightedIndex(array[x].length, true);
-
-                BlockState currentState = array[x][y];
-
-                HullbackDirtManager.HullbackDirtEntry entry = HullbackDirtManager.DATA.stream().filter(e -> e.matches(currentState)).findFirst().orElse(null);
-
-                if (entry != null && entry.growth().isPresent() && this.random.nextBoolean()) {
-
-                    array[x][y] = applyProperties(entry.growth().get(), entry.growthProperties());
-                    if (entry.soundOnGrowth() != null) {
-                        this.level().playSound(null, this.getX(), this.getY(), this.getZ(), entry.soundOnGrowth(), SoundSource.NEUTRAL, 1.0F, 1.0f);
-                    } else {
-                        this.level().playSound(null, this.getX(), this.getY(), this.getZ(), SoundEvents.BONE_MEAL_USE, SoundSource.NEUTRAL, 1.0F, 1.0f);
-                    }
-                    if (!this.level().isClientSide) syncDirtToClients();
-                    return;
-                }
-
-                if (currentState == null || currentState.isAir()) {
-                    List<HullbackDirtManager.HullbackDirtEntry> candidates = getCandidates(false, partName);
-                    if (!candidates.isEmpty()) {
-                        HullbackDirtManager.HullbackDirtEntry candidate = candidates.get(random.nextInt(candidates.size()));
-                        if (random.nextDouble() < candidate.placementChance()) {
-                            array[x][y] = applyProperties(candidate.block(), candidate.blockProperties());
-                            if (!this.level().isClientSide) {
-                                if (candidate.soundOnGrowth() != null) {
-                                    this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
-                                            candidate.soundOnGrowth(), SoundSource.NEUTRAL, 1.0F, 1.0f);
-                                } else {
-                                    this.level().playSound(null, this.getX(), this.getY(), this.getZ(),
-                                            SoundEvents.BONE_MEAL_USE, SoundSource.NEUTRAL, 1.0F, 1.0f);
-                                }
-                                syncDirtToClients();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private int getWeightedIndex(int length, boolean higherWeight) {
-        double[] weights = new double[length];
-        double totalWeight = 0;
-
-        for (int i = 0; i < length; i++) {
-            if (higherWeight) {
-                weights[i] = i + 1;
-            } else {
-                weights[i] = length - i;
-            }
-            totalWeight += weights[i];
-        }
-
-        double randomValue = random.nextDouble() * totalWeight;
-        double cumulativeWeight = 0;
-
-        for (int i = 0; i < length; i++) {
-            cumulativeWeight += weights[i];
-            if (randomValue <= cumulativeWeight) {
-                return i;
-            }
-        }
-
-        return length - 1;
-    }
 
     private void updateMouthOpening() {
         mouthOpenProgress = (float) Mth.lerp(0.3, mouthOpenProgress, mouthTarget);
@@ -1771,176 +1045,28 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         return this.entityData.get(DATA_MOUTH_PROGRESS);
     }
     public Vec3 getPartPos(int i){
-        return partPosition[i];
+        return partManager.partPosition[i];
     }
 
     public float getPartYRot(int i){
-        return partYRot[i];
+        return partManager.partYRot[i];
     }
     public float getPartXRot(int i){
-        return partXRot[i];
+        return partManager.partXRot[i];
     }
 
     public Vec3 getOldPartPos(int i){
-        return oldPartPosition[i];
+        return partManager.oldPartPosition[i];
     }
     public float getOldPartYRot(int i){
-        return oldPartYRot[i];
+        return partManager.oldPartYRot[i];
     }
     public float getOldPartXRot(int i){
-        return oldPartXRot[i];
+        return partManager.oldPartXRot[i];
     }
 
-    public void setOldPosAndRots(){
-        for (int i = 0; i < 5; i++) {
-            this.oldPartPosition[i] = subEntities[i].position();
-            this.oldPartYRot[i] = subEntities[i].getYRot();
-            this.oldPartXRot[i] = subEntities[i].getXRot();
-        }
-    }
-    private void updatePartPositions() {
 
-        float[] partDragFactors = new float[]{1f, 0.9f, 0.2f, 0.1f, 0.09f};
 
-        Vec3[] baseOffsets = {
-                new Vec3(0, 0, 6),      // Nose
-                new Vec3(0, 0, 2.5),    // Head
-                new Vec3(0, 0, -2.25),  // Body
-                new Vec3(0, 0, -7),     // Tail
-                new Vec3(0, 0, -11)     // Fluke
-        };
-
-        if (prevPartPositions[0] == null) {
-            float yawRadInit = -this.getYRot() * Mth.DEG_TO_RAD;
-            float pitchRadInit = this.getXRot() * Mth.DEG_TO_RAD;
-            for (int i = 0; i < prevPartPositions.length; i++) {
-                // Determine initial offset based on index (matching baseOffsets definition)
-                Vec3 initBaseOffset = switch(i) {
-                     case 0 -> new Vec3(0, 0, 6);
-                     case 1 -> new Vec3(0, 0, 2.5);
-                     case 2 -> new Vec3(0, 0, -2.25);
-                     case 3 -> new Vec3(0, 0, -7);
-                     case 4 -> new Vec3(0, 0, -11);
-                     default -> Vec3.ZERO;
-                };
-                
-                Vec3 rotatedOffset = initBaseOffset.yRot(yawRadInit).xRot(pitchRadInit);
-                prevPartPositions[i] = this.position().add(rotatedOffset);
-            }
-        }
-
-        float swimCycle = (float) (Mth.sin(this.tickCount * 0.1f) * this.getDeltaMovement().length());
-        float yawRad = -this.getYRot() * Mth.DEG_TO_RAD;
-        float pitchRad = this.getXRot() * Mth.DEG_TO_RAD;
-
-        for (int i = 0; i < baseOffsets.length; i++) {
-            baseOffsets[i] = baseOffsets[i]
-                    .yRot(yawRad)
-                    .xRot(pitchRad);
-
-            baseOffsets[i] = new Vec3(
-                    this.getX() + baseOffsets[i].x,
-                    this.getY() + baseOffsets[i].y,
-                    this.getZ() + baseOffsets[i].z
-            );
-
-            if (i > 0) {
-                baseOffsets[i] = new Vec3(
-                        Mth.lerp(partDragFactors[i], prevPartPositions[i].x, baseOffsets[i].x),
-                        Mth.lerp(partDragFactors[i], prevPartPositions[i].y, baseOffsets[i].y),
-                        Mth.lerp(partDragFactors[i], prevPartPositions[i].z, baseOffsets[i].z)
-                );
-                
-                // Chain Constraint: Prevent parts from disconnecting
-                double maxDist = switch(i) {
-                     case 1 -> 3.55;
-                     case 2 -> 4.8;
-                     case 3 -> 4.8;
-                     case 4 -> 4.1;
-                     default -> 10.0;
-                };
-                
-                Vec3 parentPos = prevPartPositions[i-1];
-                double dist = baseOffsets[i].distanceTo(parentPos);
-                if (dist > maxDist) {
-                     baseOffsets[i] = parentPos.add(baseOffsets[i].subtract(parentPos).normalize().scale(maxDist));
-                }
-            }
-            prevPartPositions[i] = baseOffsets[i];
-        }
-
-        this.partPosition[0] = prevPartPositions[0];
-        this.partYRot[0] = calculateYaw(prevPartPositions[0], prevPartPositions[1]);
-        this.partXRot[0] = calculatePitch(prevPartPositions[0], prevPartPositions[1]);
-        this.nose.moveTo(prevPartPositions[0].x, prevPartPositions[0].y, prevPartPositions[0].z,
-                partYRot[0],
-                partXRot[0]);
-
-        this.partPosition[1] = new Vec3(prevPartPositions[1].x, prevPartPositions[1].y + swimCycle * 2, prevPartPositions[1].z);
-        this.partYRot[1] = calculateYaw(prevPartPositions[0], prevPartPositions[1]);
-        this.partXRot[1] = calculatePitch(prevPartPositions[0], prevPartPositions[1]);
-        this.head.moveTo(prevPartPositions[1].x, prevPartPositions[1].y + swimCycle * 2, prevPartPositions[1].z,
-                partYRot[1],
-                partXRot[1]);
-
-        this.partPosition[2] = new Vec3(prevPartPositions[2].x, prevPartPositions[2].y + swimCycle * 2, prevPartPositions[2].z);
-        this.partYRot[2] = calculateYaw(prevPartPositions[1], prevPartPositions[2]);
-        this.partXRot[2] = calculatePitch(prevPartPositions[1], prevPartPositions[2]);
-        this.body.moveTo(prevPartPositions[2].x,
-                prevPartPositions[2].y + swimCycle * 2,
-                prevPartPositions[2].z,
-                partYRot[2],
-                partXRot[2]);
-
-        this.partPosition[3] = new Vec3(prevPartPositions[3].x, prevPartPositions[3].y + swimCycle * 8, prevPartPositions[3].z);
-        this.partYRot[3] = calculateYaw(prevPartPositions[2], prevPartPositions[3]);
-        this.partXRot[3] = calculatePitch(prevPartPositions[2], prevPartPositions[3]) * 1.5f - swimCycle * 20f;
-        this.tail.moveTo(prevPartPositions[3].x,
-                prevPartPositions[3].y + swimCycle * 8,
-                prevPartPositions[3].z,
-                partYRot[3],
-                partXRot[3]);
-
-        float flukeDistance = 4.0f;
-        Vec3 flukeOffset = new Vec3(0, 0, -flukeDistance)
-                .yRot(-tail.getYRot() * Mth.DEG_TO_RAD)
-                .xRot(tail.getXRot() * Mth.DEG_TO_RAD);
-
-        Vec3 flukeTarget = new Vec3(
-                tail.getX() + flukeOffset.x,
-                tail.getY() + flukeOffset.y + swimCycle * 5.5,
-                tail.getZ() + flukeOffset.z
-        );
-
-        float flukeYaw = calculateYaw(tail.position(), flukeTarget);
-        float flukePitch = calculatePitch(tail.position(), flukeTarget);
-
-        flukeYaw = Mth.rotLerp(partDragFactors[4], oldPartYRot[4], flukeYaw);
-
-        this.partPosition[4] = flukeTarget;
-        this.partYRot[4] = flukeYaw;
-        this.partXRot[4] = flukePitch * 1.5f + swimCycle * 30f;
-        this.fluke.moveTo(
-                flukeTarget.x,
-                flukeTarget.y,
-                flukeTarget.z,
-                flukeYaw,
-                (flukePitch * 1.5f + swimCycle * 30f)
-        );
-    }
-    private float calculateYaw(Vec3 from, Vec3 to) {
-        double dx = to.x - from.x;
-        double dz = to.z - from.z;
-        return (float)(Mth.atan2(dz, dx) * (180F / Math.PI)) + 90F;
-    }
-
-    private float calculatePitch(Vec3 from, Vec3 to) {
-        double dx = to.x - from.x;
-        double dy = to.y - from.y;
-        double dz = to.z - from.z;
-        double horizontalDistance = Math.sqrt(dx * dx + dz * dz);
-        return -(float)(Mth.atan2(dy, horizontalDistance) * (180F / Math.PI));
-    }
     protected BodyRotationControl createBodyControl() {
         return new HullbackBodyRotationControl(this);
     }
@@ -1986,11 +1112,11 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             yOffset = 0.5F;
 
         // Verify if seats were calculated
-        if (seatIndex < seats.length && seats[seatIndex] != null) {
+        if (seatIndex < partManager.seats.length && partManager.seats[seatIndex] != null) {
             callback.accept(passenger,
-                    seats[seatIndex].x,
-                    seats[seatIndex].y - yOffset,
-                    seats[seatIndex].z);
+                    partManager.seats[seatIndex].x,
+                    partManager.seats[seatIndex].y - yOffset,
+                    partManager.seats[seatIndex].z);
         } else {
             // Fallback: Use entity's main position if seats were not calculated
             callback.accept(passenger,
@@ -2000,11 +1126,17 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         }
     }
 
+
+
+    public static Holder<Attribute> getSwimSpeed() {
+        return NeoForgeMod.SWIM_SPEED;
+    }
+
     private void updateModifiers() {
         double speedModifier = 0.0;
 
         for (Entity passenger : getPassengers()) {
-            if (passenger instanceof SailEntity sail) {
+            if (passenger instanceof com.fruityspikes.whaleborne.server.entities.SailEntity sail) {
                 speedModifier += sail.getSpeedModifier();
             }
         }
@@ -2016,126 +1148,35 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 inst.removeModifier(SAIL_SPEED_MODIFIER_ID);
             }
             if (speedModifier != 0.0) {
-            if (speedModifier != 0.0) {
                 inst.addPermanentModifier(new AttributeModifier(
                         SAIL_SPEED_MODIFIER_ID,
                         speedModifier,
                         AttributeModifier.Operation.ADD_VALUE
                 ));
             }
-            }
         }
-    }
-
-    public static Holder<Attribute> getSwimSpeed() {
-        return NeoForgeMod.SWIM_SPEED;
     }
 
     public int getSeatByEntity(Entity entity){
-        if (entity != null) {
-            for (int seatIndex = 0; seatIndex < 7; seatIndex++) {
-                Optional<UUID> seatOccupant = this.entityData.get(getSeatAccessor(seatIndex));
-                if (seatOccupant.isPresent() && seatOccupant.get().equals(entity.getUUID())) {
-                    return seatIndex;
-                }
-            }
-        }
-        return -1;
+        return hullbackSeatManager.getSeatByEntity(entity);
     }
 
     private void validateAssignments() {
-        Set<UUID> currentPassengerUUIDs = this.getPassengers().stream()
-                .map(Entity::getUUID)
-                .collect(Collectors.toSet());
-
+        hullbackSeatManager.validateAssignments();
         updateModifiers();
-        for (int seatIndex = 0; seatIndex < 7; seatIndex++) {
-            EntityDataAccessor<Optional<UUID>> seatAccessor = getSeatAccessor(seatIndex);
-            Optional<UUID> assignedUUID = this.entityData.get(seatAccessor);
-
-            if (assignedUUID.isPresent()) {
-                UUID uuid = assignedUUID.get();
-
-                if (!currentPassengerUUIDs.contains(uuid)) {
-                    boolean shouldClear = true;
-
-                    // "Smart" Check & Active Recovery
-                    if (this.level() instanceof ServerLevel serverLevel) {
-                        Entity passengerEntity = serverLevel.getEntity(uuid);
-                        
-                        if (passengerEntity == null) {
-                            // Entity still loading or dead. Wait up to 60s.
-                            if (this.tickCount < 1200) { 
-                                shouldClear = false;
-                            }
-                        } else {
-                            // Entity found but deemed "detached" (not in our passenger list).
-                            // RECOVERY LOGIC:
-                            // 1. Teleport to seat (catch up if whale moved)
-                            // 2. Force mount
-                            
-                            if (passengerEntity.isAlive()) {
-                                Vec3 seatPos = seats[seatIndex]; // Current seat position
-                                // Teleport to sync position before mounting to avoid weird interpolation
-                                passengerEntity.teleportTo(seatPos.x, seatPos.y, seatPos.z);
-                                
-                                // Force re-mount
-                                passengerEntity.startRiding(this, true);
-                                
-                                // Do NOT clear the seat, we just fixed it.
-                                shouldClear = false;
-                            }
-                        }
-                    }
-
-                    if (shouldClear) {
-                        //Whaleborne.LOGGER.debug("Clearing seat assignment: seat {} for {}", seatIndex, uuid);
-                        this.entityData.set(seatAccessor, Optional.empty());
-                    }
-                }
-
-                else {
-                    Entity passenger = getEntityByUUID(uuid);
-                    if (passenger != null && getSeatByEntity(passenger) != seatIndex) {
-                        //Whaleborne.LOGGER.debug("Correcting mismatched seat assignment: {} was in seat {} but belongs in {}",
-                                //passenger, seatIndex, getSeatByEntity(passenger));
-                        this.entityData.set(seatAccessor, Optional.empty());
-                    }
-                }
-            }
-        }
     }
     public void assignSeat(int seatIndex, @Nullable Entity passenger) {
-        this.entityData.set(getSeatAccessor(seatIndex), Optional.of(passenger.getUUID()));
-        if (this.level() instanceof ServerLevel) {
-            ((ServerLevel) this.level()).getChunkSource().broadcast(this, new ClientboundSetPassengersPacket(this));
-        }
+        hullbackSeatManager.assignSeat(seatIndex, passenger);
     }
 
     public Optional<Entity> getPassengerForSeat(int seatIndex) {
-        if (seatIndex < 0 || seatIndex >= 7) return Optional.empty();
-
-        return this.entityData.get(getSeatAccessor(seatIndex))
-                .flatMap(uuid -> this.getPassengers().stream()
-                        .filter(p -> p.getUUID().equals(uuid))
-                        .findFirst());
+        return hullbackSeatManager.getPassengerForSeat(seatIndex);
     }
     private boolean isPassengerAssigned(Entity passenger) {
-        for (int i = 0; i < 7; i++) {
-            Optional<UUID> seatUUID = this.entityData.get(getSeatAccessor(i));
-            if (seatUUID.isPresent() && seatUUID.get().equals(passenger.getUUID())) {
-                return true;
-            }
-        }
-        return false;
+        return hullbackSeatManager.isPassengerAssigned(passenger);
     }
     private int findFreeSeat() {
-        for (int i = 0; i < 7; i++) {
-            if (this.entityData.get(getSeatAccessor(i)).isEmpty()) {
-                return i;
-            }
-        }
-        return -1;
+        return hullbackSeatManager.findFreeSeat();
     }
 
     @Override
@@ -2189,50 +1230,12 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 }
             }
 
-            if (seatIndex >= 0 && seatIndex < seats.length) {
-                Vec3 seatPos = seats[seatIndex];
+            if (seatIndex >= 0 && seatIndex < partManager.seats.length) {
+                Vec3 seatPos = partManager.seats[seatIndex];
                 return new Vec3(seatPos.x, seatPos.y, seatPos.z);
             }
         }
         return super.getDismountLocationForPassenger(passenger);
-    }
-
-    public void rotatePassengers(){
-        for (Entity passenger : getPassengers()) {
-            int seat = getSeatByEntity(passenger);
-            int partIndex;
-            float offset = 0;
-            if (seat == 0 || seat == 1) {
-                partIndex = 0;
-            } else if (seat == 2 || seat == 4) {
-                partIndex = 2;
-                offset = -1;
-            } else if (seat == 3 || seat == 5) {
-                partIndex = 2;
-                offset = 1;
-            } else if (seat == 6) {
-                partIndex = 4;
-            } else {
-                continue;
-            }
-
-            if (!(passenger instanceof Player)) {
-                if(!(passenger instanceof CannonEntity cannonEntity && cannonEntity.isVehicle())){
-                    if(passenger instanceof SailEntity){
-                        passenger.yRotO = (Mth.rotLerp((float) (0.05 + 0.1 * partIndex), passenger.getYRot(), oldPartYRot[partIndex]) + offset);
-                        passenger.xRotO = (Mth.rotLerp((float) (0.05 + 0.1 * partIndex), passenger.getXRot(), oldPartXRot[partIndex]));
-                        passenger.setYRot(Mth.rotLerp((float) (0.05 + 0.1 * partIndex), passenger.getYRot(), partYRot[partIndex]) + offset);
-                        passenger.setXRot(Mth.rotLerp((float) (0.05 + 0.1 * partIndex), passenger.getXRot(), partXRot[partIndex]));
-                    }
-                    else {
-                        passenger.yRotO = oldPartYRot[partIndex];
-                        passenger.xRotO = oldPartXRot[partIndex];
-                        passenger.setYRot((partYRot[partIndex]) + offset);
-                        passenger.setXRot(partXRot[partIndex]);
-                    }
-                }
-            }
-        }
     }
 
     @Nullable
@@ -2269,8 +1272,6 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         }
     }
 
-
-
     @Override
     protected float getRiddenSpeed(Player player) {
         return (float) this.getAttributeValue(Attributes.MOVEMENT_SPEED);
@@ -2300,826 +1301,13 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }, buf -> buf.writeInt(this.getId()));
         }
     }
-
-    class HullbackBodyRotationControl extends BodyRotationControl {
-        public HullbackBodyRotationControl(HullbackEntity hullBack) {
-            super(hullBack);
-        }
-
-        public void clientTick() {
-            HullbackEntity.this.setYBodyRot(HullbackEntity.this.getYRot());
-        }
-    }
-    class HullbackRandomSwimGoal extends RandomSwimmingGoal {
-        private static final int HORIZONTAL_RANGE = 10;
-        private static final int VERTICAL_RANGE = 10;
-        private static final float FRONT_ANGLE = 45.0f;
-        private static final int STUCK_TIMEOUT = 100;
-        private static final double MIN_DISTANCE = 2.0;
-
-        private final HullbackEntity mob;
-        private int stuckTimer = 0;
-        private Vec3 lastPosition = Vec3.ZERO;
-        private Vec3 currentTarget = null;
-
-        public HullbackRandomSwimGoal(HullbackEntity mob, double speed, int interval) {
-            super(mob, speed, interval);
-            this.mob = mob;
-        }
-
-        @Override
-        public boolean canUse() {
-
-            if (mob.hasAnchorDown()) {
-                return false;
-            }
-
-            if (!this.forceTrigger) {
-                if (this.mob.getNoActionTime() >= 100) {
-                    return false;
-                }
-
-                if (this.mob.getRandom().nextInt(reducedTickDelay(this.interval)) != 0) {
-                    return false;
-                }
-            }
-
-            Vec3 vec3 = this.getPosition();
-            if (vec3 == null) {
-                return false;
-            } else {
-                this.wantedX = vec3.x;
-                this.wantedY = vec3.y;
-                this.wantedZ = vec3.z;
-                this.forceTrigger = false;
-                this.currentTarget = getPosition();
-                this.stuckTimer = 0;
-                this.lastPosition = mob.position();
-                return true;
-            }
-        }
-
-        @Override
-        public boolean canContinueToUse() {
-            if (currentTarget == null) {
-                return false;
-            }
-
-            Vec3 currentPos = mob.position();
-            if (currentPos.distanceTo(lastPosition) < 0.5) {
-                stuckTimer++;
-            } else {
-                stuckTimer = 0;
-            }
-            lastPosition = currentPos;
-
-            return stuckTimer < STUCK_TIMEOUT &&
-                    currentPos.distanceTo(currentTarget) > MIN_DISTANCE &&
-                    !mob.getNavigation().isDone();
-        }
-
-        @Override
-        public void start() {
-            if (currentTarget != null) {
-                mob.getNavigation().moveTo(currentTarget.x, currentTarget.y, currentTarget.z, mob.isSaddled() ? 0.2f : speedModifier);
-            }
-        }
-
-        @Override
-        public void stop() {
-            super.stop();
-            currentTarget = null;
-        }
-
-        @Override
-        public void tick() {
-            super.tick();
-
-            // Lógica de flutuação inteligente - mantém a Hullback domada em uma profundidade adequada
-            if(!mob.getSubEntities()[0].isEyeInFluidType(Fluids.WATER.getFluidType())) {
-                // Define a altura alvo como 5 blocos abaixo do nível do mar
-                double targetY = mob.level().getSeaLevel() - 5.0;
-                double currentY = mob.getY();
-                double diff = targetY - currentY;
-                
-                if(mob.isTamed()) {
-                    // Readjust the height bidirectionally for tamed
-                    if (Math.abs(diff) > 0.1) {
-                        double adjustSpeed = Mth.clamp(diff * 0.05, -0.1, 0.1);
-                        mob.setDeltaMovement(mob.getDeltaMovement().x, adjustSpeed, mob.getDeltaMovement().z);
-                    }
-                } else {
-                     mob.setDeltaMovement(0, -0.1, 0);
-                }
-            }
-
-            if (currentTarget != null && mob.getNavigation().isDone() && mob.position().distanceTo(currentTarget) > MIN_DISTANCE) {
-                mob.getNavigation().moveTo(currentTarget.x, currentTarget.y, currentTarget.z, speedModifier);
-            }
-            if(this.mob.getDeltaMovement().length() > 0.5) mouthTarget = 1;
-        }
-
-        protected Vec3 getPosition() {
-            Vec3 target = Vec3.ZERO;
-            target = mob.getRandom().nextFloat() < 0.7f ?
-                    findPositionInFront() :
-                    BehaviorUtils.getRandomSwimmablePos(mob, HORIZONTAL_RANGE, VERTICAL_RANGE);
-            return target == null ? mob.position() : target;
-        }
-
-        private Vec3 findPositionInFront() {
-            Vec3 lookAngle = mob.getLookAngle();
-            Vec3 mobPos = mob.position();
-
-            for (int i = 0; i < 10; i++) {
-                float angle = mob.getRandom().nextFloat() * FRONT_ANGLE * 2 - FRONT_ANGLE;
-                Vec3 direction = lookAngle.yRot((float)Math.toRadians(angle));
-
-                float distance = HORIZONTAL_RANGE;
-                Vec3 targetPos = mobPos.add(direction.scale(distance));
-
-                targetPos = targetPos.add(0, mob.getRandom().nextFloat() * VERTICAL_RANGE * 2 - VERTICAL_RANGE, 0);
-
-                if (isSwimmablePos(mob, targetPos)) {
-                    return targetPos;
-                }
-            }
-            return BehaviorUtils.getRandomSwimmablePos(mob, HORIZONTAL_RANGE, VERTICAL_RANGE);
-        }
-
-        private boolean isSwimmablePos(PathfinderMob entity, Vec3 targetPos) {
-            return entity.level().getBlockState(BlockPos.containing(targetPos))
-                    .isPathfindable(PathComputationType.WATER);
-        }
-    }
-    public class HullbackBreathAirGoal extends Goal {
-        private static final int BREACH_HEIGHT = 5; // Blocks above surface to breach
-        private static final float BREACH_SPEED = 1.2f;
-        private static final float ROTATION_SPEED = 10f;
-
-        private final HullbackEntity hullback;
-        private int breachCooldown = 0;
-        private boolean isBreaching = false;
-        private Vec3 initialPos;
-
-        public HullbackBreathAirGoal(HullbackEntity hullback) {
-            this.hullback = hullback;
-            this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
-        }
-
-        @Override
-        public boolean canUse() {
-
-            if (breachCooldown > 0) {
-                breachCooldown--;
-                return false;
-            }
-            return this.hullback.getAirSupply() < this.hullback.getMaxAirSupply() * 0.2;
-        }
-
-        @Override
-        public boolean canContinueToUse() {
-            return (this.hullback.getAirSupply() < this.hullback.getMaxAirSupply() ||
-                    !this.hullback.isInWater());
-        }
-
-        @Override
-        public void start() {
-            this.isBreaching = true;
-            this.initialPos = this.hullback.position();
-            this.hullback.getNavigation().stop();
-
-            int surfaceY = this.hullback.level().getSeaLevel();
-            Vec3 breachTarget = new Vec3(
-                    this.hullback.getX(),
-                    surfaceY + BREACH_HEIGHT,
-                    this.hullback.getZ()
-            );
-
-            this.hullback.getMoveControl().setWantedPosition(
-                    breachTarget.x,
-                    breachTarget.y,
-                    breachTarget.z,
-                    BREACH_SPEED
-            );
-
-            //if (this.hullback.level().isClientSide) {
-            //    this.hullback.mouthTarget = 0.7f;
-            //    this.hullback.playSound(SoundEvents.ALLAY_HURT, 1.0f, 0.3f);
-            //}
-        }
-
-        @Override
-        public void tick() {
-            super.tick();
-
-            float targetXRot = -60f;
-            this.hullback.setXRot(Mth.rotLerp(ROTATION_SPEED * 0.1f, this.hullback.getXRot(), targetXRot));
-
-            if (this.hullback.isInWater()) {
-                this.hullback.setDeltaMovement(new Vec3(0.3, 0.8, 0).yRot(this.hullback.getYRot())
-                );
-            }
-
-            if (this.hullback.getY() >= this.hullback.level().getSeaLevel() &&
-                    this.hullback.level().isClientSide) {
-                for (int i = 0; i < 5; i++) {
-                    this.hullback.level().addParticle(ParticleTypes.SPLASH,
-                            this.hullback.getX() + (this.hullback.getRandom().nextFloat() - 0.5f) * 3f,
-                            this.hullback.level().getSeaLevel(),
-                            this.hullback.getZ() + (this.hullback.getRandom().nextFloat() - 0.5f) * 3f,
-                            0, 0.5, 0);
-                }
-            }
-        }
-
-        @Override
-        public void stop() {
-            this.isBreaching = false;
-            this.breachCooldown = 200;
-
-            this.hullback.setAirSupply(this.hullback.getMaxAirSupply());
-
-            if (this.hullback.level().isClientSide) {
-                for (int i = 0; i < 20; i++) {
-                    this.hullback.level().addParticle(ParticleTypes.BUBBLE,
-                            this.hullback.partPosition[2].x,
-                            this.hullback.partPosition[2].y,
-                            this.hullback.partPosition[2].z,
-                            (this.hullback.getRandom().nextFloat() - 0.5f) * 0.5f,
-                            this.hullback.getRandom().nextFloat() * 0.5f,
-                            (this.hullback.getRandom().nextFloat() - 0.5f) * 0.5f);
-                }
-                this.hullback.mouthTarget = 0.0f;
-            }
-
-            Vec3 particlePos = partPosition[1].add(new Vec3(0, 7, 0));
-            double x = particlePos.x;
-            double y = particlePos.y;
-            double z = particlePos.z;
-
-            if (this.hullback.level() instanceof ServerLevel serverLevel) {
-                serverLevel.sendParticles(
-                        WBParticleRegistry.SMOKE.get(),
-                        x,
-                        y,
-                        z,
-                        50,
-                        0.2,
-                        0.2,
-                        0.2,
-                        0.02
-                );
-            }
-
-            this.hullback.playSound(WBSoundRegistry.HULLBACK_BREATHE.get(), 3.0f, 1);
-            this.hullback.setXRot(Mth.rotLerp(0.1f, this.hullback.getXRot(), 0));
-        }
-
-        public boolean isBreaching() {
-            return this.isBreaching;
-        }
-    }
-
-    public class HullbackArmorPlayerGoal extends Goal {
-        private static final float APPROACH_DISTANCE = 8.0f;
-        private static final float SIDE_OFFSET = 5.0f;
-        private static final float ROTATION_SPEED = 0.8f;
-        private static Ingredient TEMPT_PLANKS = Ingredient.of(WBTagRegistry.HULLBACK_EQUIPPABLE);
-        private static Ingredient TEMPT_WIDGETS = Ingredient.of(WBItemRegistry.SAIL.get(), WBItemRegistry.ANCHOR.get(), WBItemRegistry.MAST.get(), WBItemRegistry.HELM.get(), WBItemRegistry.CANNON.get());
-        private final HullbackEntity hullback;
-        private final float speedModifier;
-        private static final TargetingConditions TEMP_TARGETING = TargetingConditions.forNonCombat().range(10.0).ignoreLineOfSight();
-        private final TargetingConditions targetingConditions;
-        private Player targetPlayer;
-        private int repositionCooldown;
-        private boolean approachFromRight;
-        private Vec3 targetPosition;
-
-        public HullbackArmorPlayerGoal(HullbackEntity hullback, float speedModifier) {
-            this.hullback = hullback;
-            this.speedModifier = speedModifier;
-            this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
-            this.repositionCooldown = 200 + hullback.getRandom().nextInt(200);
-            this.targetingConditions = TEMP_TARGETING.copy().selector(this::shouldFollow);
-        }
-
-        private boolean shouldFollow(LivingEntity entity) {
-            if (isSaddled()) {
-                if (getArmorProgress() >= 0.5 && getArmorProgress() < 1)
-                    return TEMPT_PLANKS.test(entity.getMainHandItem()) || TEMPT_PLANKS.test(entity.getOffhandItem()) || TEMPT_WIDGETS.test(entity.getMainHandItem()) || TEMPT_WIDGETS.test(entity.getOffhandItem());
-                if (getArmorProgress() == 1)
-                    return TEMPT_WIDGETS.test(entity.getMainHandItem()) || TEMPT_WIDGETS.test(entity.getOffhandItem());
-                return TEMPT_PLANKS.test(entity.getMainHandItem()) || TEMPT_PLANKS.test(entity.getOffhandItem());
-            }
-            return false;
-        }
-
-        @Override
-        public boolean canUse() {
-
-            if (!isTamed())
-                return false;
-
-            if (hullback.hasAnchorDown())
-                return false;
-
-            this.targetPlayer = this.hullback.level().getNearestPlayer(this.targetingConditions, this.hullback, 30, 50, 30);
-            if (this.targetPlayer == null) return false;
-            if (this.targetPlayer.isPassenger() && (this.targetPlayer.getVehicle().is(this.hullback) || (this.targetPlayer.getVehicle().isPassenger() && this.targetPlayer.getVehicle().getVehicle().is(this.hullback)))) return false;
-
-            return true;
-        }
-
-        @Override
-        public boolean canContinueToUse() {
-            return canUse();
-        }
-
-        @Override
-        public void start() {
-            super.start();
-
-            Vec3 toPlayer = targetPlayer.position().subtract(hullback.position());
-            Vec3 whaleRight = Vec3.directionFromRotation(0, hullback.getYRot() + 90);
-            this.approachFromRight = toPlayer.dot(whaleRight) > 0;
-
-
-            this.hullback.setTarget(this.targetPlayer);
-            Vec3 playerLook = this.targetPlayer.getLookAngle();
-
-            Vec3 perpendicular = new Vec3(-playerLook.z, 0, playerLook.x).normalize();
-
-            Vec3 sideOffset = perpendicular.scale(approachFromRight ? SIDE_OFFSET : -SIDE_OFFSET);
-            this.targetPosition = this.targetPlayer.position()
-                    .add(sideOffset)
-                    .add(playerLook.scale(-APPROACH_DISTANCE));
-
-            playSound(WBSoundRegistry.HULLBACK_HAPPY.get());
-            this.hullback.mouthTarget = 0.1f;
-        }
-
-        @Override
-        public void stop() {
-            this.targetPlayer = null;
-            this.targetPosition = null;
-            this.hullback.setTarget(null);
-            this.repositionCooldown = 100 + hullback.getRandom().nextInt(200);
-            this.hullback.getNavigation().stop();
-            this.hullback.mouthTarget = 0.0f;
-        }
-
-        @Override
-        public void tick() {
-            if (this.targetPlayer == null) return;
-
-            this.hullback.mouthTarget = 0.6f;
-            if(hullback.tickCount % 200 == 0){
-                Vec3 playerLook = this.targetPlayer.getLookAngle();
-                Vec3 perpendicular = new Vec3(-playerLook.z, 0, playerLook.x).normalize();
-                Vec3 sideOffset = perpendicular.scale(approachFromRight ? SIDE_OFFSET : -SIDE_OFFSET);
-                this.targetPosition = this.targetPlayer.position()
-                        .add(sideOffset)
-                        .add(playerLook.scale(-APPROACH_DISTANCE));
-                this.hullback.getNavigation().moveTo(
-                        targetPosition.x,
-                        targetPosition.y,
-                        targetPosition.z,
-                        this.speedModifier
-                );
-
-                Vec3 toPlayer = targetPlayer.position().subtract(hullback.position());
-                float desiredYaw = (float) Math.toDegrees(Math.atan2(toPlayer.z, toPlayer.x)) - 90f;
-                float sideYawOffset = approachFromRight ? -90f : 90f;
-                float targetYaw = desiredYaw + sideYawOffset;
-//            if (this.hullback.tickCount % 200 == 0){
-                this.hullback.setYRot(Mth.rotLerp(0.1f, this.hullback.getYRot(), targetYaw));
-                this.hullback.yBodyRot = this.hullback.getYRot();
-//            }
-            }
-        }
-    }
-    public class HullbackApproachPlayerGoal extends Goal {
-        private static final float APPROACH_DISTANCE = 8.0f;
-        private static final float SIDE_OFFSET = 5.0f;
-        private static final float ROTATION_SPEED = 0.8f;
-
-        private static Ingredient TEMPT_SADDLE = Ingredient.of(Items.SADDLE);
-        private static Ingredient TEMPT_ITEMS = Ingredient.of(Items.SHEARS);
-        private static Ingredient TEMPT_AXES = Ingredient.of(ItemTags.AXES);
-        private final HullbackEntity hullback;
-        private final float speedModifier;
-        private static final TargetingConditions TEMP_TARGETING = TargetingConditions.forNonCombat().range(10.0).ignoreLineOfSight();
-        private final TargetingConditions targetingConditions;
-        private Player targetPlayer;
-        private int repositionCooldown;
-        private boolean approachFromRight;
-        private Vec3 targetPosition;
-
-        public HullbackApproachPlayerGoal(HullbackEntity hullback, float speedModifier) {
-            this.hullback = hullback;
-            this.speedModifier = speedModifier;
-            this.setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
-            this.repositionCooldown = 200 + hullback.getRandom().nextInt(200);
-            this.targetingConditions = TEMP_TARGETING.copy().selector(this::shouldFollow);
-        }
-
-        private boolean shouldFollow(LivingEntity entity) {
-            if( isTamed() && !isSaddled())
-                return TEMPT_SADDLE.test(entity.getMainHandItem()) || TEMPT_SADDLE.test(entity.getOffhandItem()) || TEMPT_ITEMS.test(entity.getMainHandItem()) || TEMPT_ITEMS.test(entity.getOffhandItem()) || TEMPT_AXES.test(entity.getMainHandItem()) || TEMPT_AXES.test(entity.getOffhandItem());
-            return TEMPT_ITEMS.test(entity.getMainHandItem()) || TEMPT_ITEMS.test(entity.getOffhandItem()) || TEMPT_AXES.test(entity.getMainHandItem()) || TEMPT_AXES.test(entity.getOffhandItem());
-        }
-
-        @Override
-        public boolean canUse() {
-
-            if (hullback.hasAnchorDown())
-                return false;
-
-            this.targetPlayer = this.hullback.level().getNearestPlayer(this.targetingConditions, this.hullback, 30, 50, 30);
-            if (this.targetPlayer == null) return false;
-            if (this.targetPlayer.isPassenger() && (this.targetPlayer.getVehicle().is(this.hullback) || (this.targetPlayer.getVehicle().isPassenger() && this.targetPlayer.getVehicle().getVehicle().is(this.hullback)))) return false;
-
-            return true;
-        }
-
-        @Override
-        public boolean canContinueToUse() {
-            return canUse();
-        }
-
-        @Override
-        public void start() {
-            super.start();
-
-            Vec3 toPlayer = targetPlayer.position().subtract(hullback.position());
-            Vec3 whaleRight = Vec3.directionFromRotation(0, hullback.getYRot() + 90);
-            this.approachFromRight = toPlayer.dot(whaleRight) > 0;
-
-
-            this.hullback.setTarget(this.targetPlayer);
-            Vec3 playerLook = this.targetPlayer.getLookAngle();
-
-            Vec3 perpendicular = new Vec3(-playerLook.z, 0, playerLook.x).normalize();
-            //TODO FIX
-            Vec3 sideOffset = perpendicular.scale(approachFromRight ? SIDE_OFFSET : -SIDE_OFFSET);
-            this.targetPosition = this.targetPlayer.position()
-                    .add(sideOffset)
-                    .add(playerLook.scale(-APPROACH_DISTANCE));
-
-            playSound(WBSoundRegistry.HULLBACK_HAPPY.get());
-            this.hullback.mouthTarget = 0.2f;
-        }
-
-        @Override
-        public void stop() {
-            this.targetPlayer = null;
-            this.targetPosition = null;
-            this.hullback.setTarget(null);
-            this.repositionCooldown = 100 + hullback.getRandom().nextInt(200);
-            this.hullback.getNavigation().stop();
-            this.hullback.mouthTarget = 0.0f;
-        }
-
-        @Override
-        public void tick() {
-            this.hullback.mouthTarget = 0.6f;
-            if (this.targetPlayer == null) return;
-            if(hullback.tickCount % 200 == 0) {
-                Vec3 playerLook = this.targetPlayer.getLookAngle();
-                Vec3 perpendicular = new Vec3(-playerLook.z, 0, playerLook.x).normalize();
-                Vec3 sideOffset = perpendicular.scale(approachFromRight ? SIDE_OFFSET : -SIDE_OFFSET);
-                this.targetPosition = this.targetPlayer.position()
-                        .add(sideOffset)
-                        .add(playerLook.scale(-APPROACH_DISTANCE));
-                this.hullback.getNavigation().moveTo(
-                        targetPosition.x,
-                        targetPosition.y,
-                        targetPosition.z,
-                        this.speedModifier
-                );
-
-                Vec3 toPlayer = targetPlayer.position().subtract(hullback.position());
-                float desiredYaw = (float) Math.toDegrees(Math.atan2(toPlayer.z, toPlayer.x)) - 90f;
-                float sideYawOffset = approachFromRight ? -90f : 90f;
-                float targetYaw = desiredYaw + sideYawOffset;
-
-                this.hullback.setYRot(Mth.rotLerp(0.1f, this.hullback.getYRot(), targetYaw));
-                this.hullback.yBodyRot = this.hullback.getYRot();
-            }
-        }
-    }
-
-    public class HullbackTryFindWaterGoal extends Goal {
-        private final PathfinderMob mob;
-        private final boolean isBeached;
-
-        public HullbackTryFindWaterGoal(PathfinderMob mob, boolean isBeached) {
-            this.mob = mob;
-            this.isBeached = isBeached;
-        }
-
-        public boolean canUse() {
-            if(isBeached)
-                return mob.tickCount > 20 && !this.mob.isEyeInFluidType(Fluids.WATER.getFluidType());
-            return mob.tickCount > 20 && !mob.level().getFluidState(mob.blockPosition().below()).is(FluidTags.WATER);
-        }
-
-        public void start() {
-            BlockPos blockpos = null;
-
-                Iterator var2 = BlockPos.betweenClosed(Mth.floor(this.mob.getX() - (isBeached ? 20.0 : 5)), Mth.floor(this.mob.getY() - 2.0), Mth.floor(this.mob.getZ() - (isBeached ? 20.0 : 5)), Mth.floor(this.mob.getX() + (isBeached ? 20.0 : 5)), this.mob.getBlockY(), Mth.floor(this.mob.getZ() + (isBeached ? 20.0 : 5))).iterator();
-
-            while(var2.hasNext()) {
-                BlockPos blockpos1 = (BlockPos)var2.next();
-                if (this.mob.level().getFluidState(blockpos1).is(FluidTags.WATER)) {
-                    blockpos = blockpos1;
-                    break;
-                }
-            }
-
-            if (blockpos != null) {
-                this.mob.getMoveControl().setWantedPosition((double)blockpos.getX(), (double)blockpos.getY(), (double)blockpos.getZ(), 1.0);
-                this.mob.getLookControl().setLookAt(mob.getMoveControl().getWantedX(), mob.getMoveControl().getWantedY(), mob.getMoveControl().getWantedZ());
-            }
-        }
-
-        @Override
-        public void tick() {
-            super.tick();
-
-            Vec3 target = new Vec3(mob.getMoveControl().getWantedX(),
-                    mob.getMoveControl().getWantedY(),
-                    mob.getMoveControl().getWantedZ());
-            float targetYRot = (float)Math.toDegrees(Math.atan2(target.z - mob.getZ(), target.x - mob.getX())) - 90;
-
-            mob.setYRot(Mth.rotLerp(0.01f, mob.getYRot(), targetYRot));
-
-
-            if(mob.tickCount % 10 == 0)
-                mob.playSound(WBSoundRegistry.HULLBACK_MAD.get());
-
-            if(mob.tickCount % 100 == 0 && !mob.level().getBlockState(mob.blockPosition().below()).isAir()){
-
-                ((HullbackEntity) mob).mouthTarget = 0;
-
-                mob.getLookControl().setLookAt(target);
-                mob.setYRot(Mth.rotLerp(0.1f, mob.getYRot(), targetYRot));
-                mob.yBodyRot = mob.getYRot();
-                Vec3 direction = target.subtract(mob.position()).normalize();
-
-                double lungePower = 1;
-                Vec3 velocity = direction.scale(lungePower).add(0, 0.5, 0);
-                if(isBeached) {
-                    mob.playSound(WBSoundRegistry.ORGAN.get(), 2, 2f);
-                    mob.playSound(WBSoundRegistry.ORGAN.get(), 2, 1f);
-                    mob.playSound(WBSoundRegistry.HULLBACK_HURT.get(), 3.0f, 0.2f);
-                    mob.playSound(WBSoundRegistry.HULLBACK_SWIM.get(), 2, 0.5f);
-                    pushEntities();
-                }
-                mob.setDeltaMovement(velocity);
-
-                mob.setYRot(Mth.rotLerp(0.2f, mob.getYRot(), targetYRot));
-                mob.yBodyRot = mob.getYRot();
-            }
-        }
-
-        public void pushEntities(){
-            AABB pushArea = mob.getBoundingBox().inflate(20);
-            List<Entity> pushableEntities = this.mob.level().getEntities(mob, pushArea);
-            pushableEntities.removeIf(entity -> !entity.isPushable() && entity.isPassenger());
-
-            Vec3 center = mob.position();
-            double pushStrength = 3;
-
-            for (Entity entity : pushableEntities) {
-
-                Vec3 pushDir = entity.position().subtract(center).normalize();
-                entity.push(
-                        pushDir.x * pushStrength,
-                        0.3,
-                        pushDir.z * pushStrength
-                );
-
-                if (this.mob.level() instanceof ServerLevel serverLevel) {
-                    serverLevel.sendParticles(
-                            WBParticleRegistry.SMOKE.get(),
-                            entity.getX(),
-                            entity.getY(),
-                            entity.getZ(),
-                            10,
-                            0.5,
-                            0.5,
-                            0.5,
-                            0.02
-                    );
-                }
-
-                if (entity instanceof LivingEntity living) {
-                    living.knockback(0.5f, pushDir.x, pushDir.z);
-                    living.hurtMarked = true;
-                }
-            }
-        }
-
-        @Override
-        public void stop() {
-            super.stop();
-            if(isBeached) {
-                this.mob.setAirSupply(this.mob.getMaxAirSupply());
-
-                if (this.mob.level().isClientSide) {
-                    for (int i = 0; i < 20; i++) {
-                        this.mob.level().addParticle(ParticleTypes.BUBBLE,
-                                ((HullbackEntity) mob).partPosition[2].x,
-                                ((HullbackEntity) mob).partPosition[2].y,
-                                ((HullbackEntity) mob).partPosition[2].z,
-                                (this.mob.getRandom().nextFloat() - 0.5f) * 0.5f,
-                                this.mob.getRandom().nextFloat() * 0.5f,
-                                (this.mob.getRandom().nextFloat() - 0.5f) * 0.5f);
-                    }
-                    ((HullbackEntity) mob).mouthTarget = 0.0f;
-                }
-
-                Vec3 particlePos = partPosition[1].add(new Vec3(0, 7, 0));
-                double x = particlePos.x;
-                double y = particlePos.y;
-                double z = particlePos.z;
-
-                if (this.mob.level() instanceof ServerLevel serverLevel) {
-                    serverLevel.sendParticles(
-                            WBParticleRegistry.SMOKE.get(),
-                            x,
-                            y,
-                            z,
-                            50,
-                            0.2,
-                            0.2,
-                            0.2,
-                            0.02
-                    );
-                }
-
-                this.mob.playSound(WBSoundRegistry.HULLBACK_BREATHE.get(), 1.5f, 1);
-            }
-        }
-    }
     
     public void setVectorControl(boolean val) {
          this.entityData.set(DATA_VECTOR_CONTROL, val);
     }
 
-
-    @OnlyIn(Dist.CLIENT)
-    private void clientHandleControlState() {
-        // Verifica se é o jogador local controlando
-        // Robust check for Helm/Multipart
-        LivingEntity controller = getControllingPassenger();
-        
-        if (controller == null) {
-             try {
-                 net.minecraft.client.player.LocalPlayer local = net.minecraft.client.Minecraft.getInstance().player;
-                 if (local != null && local.getRootVehicle() == this) {
-                     controller = local;
-                 }
-             } catch (Exception e) {}
-        }
-
-        if (controller instanceof Player player && player == net.minecraft.client.Minecraft.getInstance().player) {
-            
-            // Verifica o mod apenas uma vez e salva no cache
-            if (IS_THIRD_PERSON_MOD_LOADED == null) {
-                IS_THIRD_PERSON_MOD_LOADED = ModList.get().isLoaded("leawind_third_person");
-            }
-
-            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-            if (mc.options == null) return;
-
-            boolean isFirstPerson = mc.options.getCameraType().isFirstPerson();
-            // A lógica: Ativar vetor se o mod estiver presente E NÃO estiver em primeira pessoa
-            boolean shouldVector = IS_THIRD_PERSON_MOD_LOADED && !isFirstPerson;
-            
-            boolean currentVectorState = this.entityData.get(DATA_VECTOR_CONTROL);
-
-            // Só envia pacote se o estado DESEJADO for diferente do ATUAL
-            if (shouldVector != currentVectorState) {
-                // 1. Previsão Local (Atualiza imediatamente para evitar spam/lag visual)
-                this.entityData.set(DATA_VECTOR_CONTROL, shouldVector);
-                
-                // 2. Envia para o servidor confirmar
-                PacketDistributor.sendToServer(new ToggleControlPayload(this.getId(), shouldVector));
-                
-                // Debug (Opcional)
-                // System.out.println("Hullback: Toggling Control -> " + shouldVector);
-            }
-        }
-    }
-
-    // Adicione este método auxiliar para centralizar a lógica e proteger contra crashes
-    private boolean isVectorControlActive() {
-        // Lógica 1: Se for o Cliente, olhe para a câmera IMEDIATAMENTE e verifique se é o jogador local.
-        if (this.level().isClientSide) {
-             return isVectorControlActiveClient();
-        }
-        
-        // Lógica 2: Se for o Servidor (ou outro jogador vendo), confie nos dados sincronizados.
-        return this.entityData.get(DATA_VECTOR_CONTROL);
-    }
-
-    // Método isolado com @OnlyIn(Dist.CLIENT) para não quebrar o servidor dedicado
-    @OnlyIn(Dist.CLIENT)
-    private boolean isVectorControlActiveClient() {
-        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-        if (mc.player == null || this.getControllingPassenger() != mc.player) {
-            // Se não sou eu pilotando, confio no entityData visual
-            return this.entityData.get(DATA_VECTOR_CONTROL);
-        }
-
-        // Cache do mod check (segurança)
-        if (IS_THIRD_PERSON_MOD_LOADED == null) {
-            IS_THIRD_PERSON_MOD_LOADED = ModList.get().isLoaded("leawind_third_person");
-        }
-
-        // AQUI ESTÁ O FIX: Prioridade absoluta para a câmera atual
-        boolean isFirstPerson = mc.options.getCameraType().isFirstPerson();
-        return IS_THIRD_PERSON_MOD_LOADED && !isFirstPerson;
-    }
-
     @Override
     protected Vec3 getRiddenInput(Player player, Vec3 travelVector) {
-        boolean hasInput = Mth.abs(player.xxa) > 0 || Mth.abs(player.zza) > 0;
-
-        if (hasInput) {
-            if (hasAnchorDown()) {
-                if (tickCount % 10 == 0) this.playSound(SoundEvents.WOOD_HIT, 1, 1);
-                return Vec3.ZERO; 
-            }
-            
-            if (tickCount % 2 == 0) this.playSound(SoundEvents.WOODEN_BUTTON_CLICK_ON, 0.5f, 1.0f);
-             
-            if(getControllingPassenger() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
-                 helmEntity.setWheelRotation(helmEntity.getWheelRotation() + player.xxa / 10);
-            }
-        } else {
-             if(getControllingPassenger() != null && getControllingPassenger().getVehicle() instanceof HelmEntity helmEntity){
-                helmEntity.setPrevWheelRotation(helmEntity.getWheelRotation());
-            }
-        }
-
-        // USANDO A NOVA VERIFICAÇÃO HÍBRIDA
-        boolean vectorControl = isVectorControlActive();
-        
-        float xxa = player.xxa * 0.5F;
-        float zza = player.zza;
-
-        if (vectorControl) {
-            // --- MODO VETORIAL (3ª Pessoa) ---
-            if (hasInput) {
-                // Calcula rotação baseada no input relativo à câmera
-                float targetYaw = player.getYRot() - (float)(Mth.atan2(player.xxa, player.zza) * (180D / Math.PI));
-                
-                this.setYRot(Mth.rotLerp(0.05f, this.getYRot(), targetYaw));
-                this.yBodyRot = this.getYRot();
-                this.yHeadRot = this.getYRot();
-                
-                // Converte todo o movimento lateral em força para frente
-                zza = Mth.sqrt(xxa * xxa + zza * zza); 
-                xxa = 0; 
-            } else {
-                zza = 0;
-            }
-        } else {
-            // --- MODO TANQUE (1ª Pessoa / Vanilla) ---
-            if (zza <= 0.0F) {
-                zza *= 0.25F; // Ré mais lenta
-            }
-            
-            // O Input lateral (A/D) vira ROTAÇÃO, não movimento lateral
-            if (player.xxa != 0) {
-                this.setYRot(Mth.rotLerp(0.8f, this.getYRot(), this.getYRot() - player.xxa)); 
-                this.yBodyRot = this.getYRot();
-            }
-            
-            // IMPORTANTE: Zerar o xxa para impedir "drift" lateral na primeira pessoa
-            xxa = 0; 
-        }
-
-        // Lógica de FluidType mantida
-        float f3 = 0;
-        if(this.nose != null && this.nose.isEyeInFluidType(Fluids.WATER.getFluidType()))
-             f3 = 1;
-
-        // Âncora
-        if (hasAnchorDown() && this.isInWater()) {
-             double targetY = this.level().getSeaLevel() - 5.0;
-             double currentY = this.getY();
-             double diff = targetY - currentY;
-             f3 = (float) Mth.clamp(diff * 0.05, -0.05, 0.05);
-             
-             zza = 0; // Ensure no forward movement with anchor
-        }
-
-        // Retornamos 0 no X (lateral), pois ou já viramos (Tanque) ou já convertemos em frente (Vetor)
-        return new Vec3(0, f3, zza); 
+        return controlManager.getRiddenInput(player, travelVector);
     }
 }

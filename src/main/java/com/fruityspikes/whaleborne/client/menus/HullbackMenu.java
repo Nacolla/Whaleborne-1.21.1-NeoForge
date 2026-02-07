@@ -40,7 +40,7 @@ public class HullbackMenu extends AbstractContainerMenu {
         super(WBMenuRegistry.HULLBACK_MENU.get(), windowId);
 
         if (hullback.getInventory() == null) {
-            System.out.println("Hullback inventory is null!");
+            // Inventory is null, which shouldn't happen usually
         }
         this.hullback = hullback;
         this.hullbackContainer = hullback.getInventory();

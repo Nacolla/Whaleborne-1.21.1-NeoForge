@@ -84,8 +84,8 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
     }
 
     private void renderDebug(HullbackEntity pEntity, PoseStack poseStack, MultiBufferSource buffer, float partialTicks) {
-        if(pEntity.seats[0]!=null){
-            for ( Vec3 seat : pEntity.seats ) {
+        if(pEntity.hullbackSeatManager.seats[0]!=null){
+            for ( Vec3 seat : pEntity.hullbackSeatManager.seats ) {
                 poseStack.pushPose();
 
                 poseStack.translate(
@@ -296,7 +296,7 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
 
     private void rendertTopDirt(PoseStack poseStack, MultiBufferSource buffer, int packedLight, HullbackEntity parent, int index) {
         boolean flag = parent.hurtTime > 0;
-        BlockState[][] array = parent.getDirtArray(index, false);
+        BlockState[][] array = parent.getWhaleDirt().getDirtArray(index, false);
 
         if(array!=null){
             for (int x = 0; x < array.length; x++) {
@@ -311,7 +311,7 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
 
     public void renderBottomDirt(PoseStack poseStack, MultiBufferSource buffer, int packedLight, HullbackEntity parent, int index) {
         boolean flag = parent.hurtTime > 0;
-        BlockState[][] array = parent.getDirtArray(index, true);
+        BlockState[][] array = parent.getWhaleDirt().getDirtArray(index, true);
 
         if(array!=null){
             for (int x = 0; x < array.length; x++) {
