@@ -104,39 +104,18 @@ public class AnchorEntity extends WhaleWidgetEntity {
                 playSound(SoundEvents.ANVIL_LAND, 1.0f, 0.9f);
 
                 if (this.getVehicle() != null && this.getVehicle() instanceof HullbackEntity hullback) {
-                    for (int side : new int[]{-1, 1}) {
-                        Vec3 particlePos = hullback.getPartPos(1).add(new Vec3(3.5 * side, 2, 0).yRot(hullback.getPartYRot(1)));
-                        double x = particlePos.x;
-                        double y = particlePos.y;
-                        double z = particlePos.z;
-
-                        if (this.level() instanceof ServerLevel serverLevel) {
+                    if (this.level() instanceof ServerLevel serverLevel) {
+                        for (int side : new int[]{-1, 1}) {
+                            Vec3 particlePos = hullback.getPartPos(1).add(new Vec3(3.5 * side, 2, 0).yRot(hullback.getPartYRot(1)));
                             serverLevel.sendParticles(
                                     WBParticleRegistry.SMOKE.get(),
-                                    x,
-                                    y,
-                                    z,
-                                    20,
-                                    0.2,
-                                    0.2,
-                                    0.2,
-                                    0.02
-                            );
+                                    particlePos.x, particlePos.y, particlePos.z,
+                                    20, 0.2, 0.2, 0.2, 0.02);
                         }
-
-                        if (this.level() instanceof ServerLevel serverLevel) {
-                            serverLevel.sendParticles(
-                                    ParticleTypes.BUBBLE,
-                                    currentHeadPos.x,
-                                    currentHeadPos.y+1,
-                                    currentHeadPos.z,
-                                    50,
-                                    0.5,
-                                    0.5,
-                                    0.5,
-                                    0.02
-                            );
-                        }
+                        serverLevel.sendParticles(
+                                ParticleTypes.BUBBLE,
+                                currentHeadPos.x, currentHeadPos.y + 1, currentHeadPos.z,
+                                50, 0.5, 0.5, 0.5, 0.02);
                     }
                     hullback.playSound(WBSoundRegistry.HULLBACK_MAD.get());
                 }

@@ -29,7 +29,7 @@ public class HullbackDamageHandler {
             return;
         }
 
-        // Calcula resistência do bloco
+        // Calculate block resistance
         float resistance = 1;
         if (armorStack.getItem() instanceof BlockItem blockItem) {
             BlockState defaultState = blockItem.getBlock().defaultBlockState();

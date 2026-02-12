@@ -5,7 +5,6 @@ import com.fruityspikes.whaleborne.network.CannonFirePayload;
 import com.fruityspikes.whaleborne.server.registries.WBItemRegistry;
 import com.fruityspikes.whaleborne.server.registries.WBParticleRegistry;
 import com.fruityspikes.whaleborne.server.registries.WBSoundRegistry;
-import net.minecraft.core.dispenser.DispenseItemBehavior;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.network.chat.Component;
@@ -14,7 +13,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.*;
 import net.minecraft.world.entity.*;
@@ -26,23 +24,12 @@ import net.minecraft.world.entity.projectile.*;
 import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.entity.vehicle.ChestBoat;
 import net.minecraft.world.inventory.AbstractContainerMenu;
-import net.minecraft.world.inventory.MenuType;
-import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.*;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.DispenserBlock;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.neoforge.common.util.Lazy;
 import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.ItemStackHandler;
 import net.neoforged.neoforge.items.wrapper.InvWrapper;
 import net.neoforged.neoforge.network.PacketDistributor;
-import org.joml.Matrix2dc;
-import org.joml.Matrix2dc;
-
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
 
 public class CannonEntity extends RideableWhaleWidgetEntity implements ContainerListener, HasCustomInventoryScreen, PlayerRideableJumping {
     protected float cannonXRot;
@@ -82,7 +69,11 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
     public void tick() {
         super.tick();
         if(this.isVehicle()){
-            //this.setCannonXRot(this.getFirstPassenger().getXRot());
+            // Save current rotation as "old" for smooth rendering interpolation
+            // (rotatePassengers skips cannon when ridden, so prevWidget fields must be updated here)
+            this.prevWidgetYRot = this.getYRot();
+            this.prevWidgetXRot = this.getXRot();
+
             this.setCannonXRot(Mth.rotLerp(0.1f, cannonXRot, this.getFirstPassenger().getXRot()));
             this.setYRot(Mth.rotLerp(0.1f, this.getYRot(), this.getFirstPassenger().getYRot()));
         }
@@ -99,10 +90,6 @@ public class CannonEntity extends RideableWhaleWidgetEntity implements Container
                 return tryInsertItem(player, hand, heldItem, 0); // Ammo slot
             }
         }
-//        else {
-//            openCannonMenu(player);
-//            return InteractionResult.SUCCESS;
-//        }
         return super.interact(player, hand);
     }
 

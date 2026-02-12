@@ -1,13 +1,20 @@
 package com.fruityspikes.whaleborne.server.entities.components.hullback;
 
-import com.fruityspikes.whaleborne.server.entities.HullbackEntity;
+import com.fruityspikes.whaleborne.server.entities.*;
+import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
 import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import javax.annotation.Nullable;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class HullbackSeatManager {
     private final HullbackEntity whale;
@@ -59,9 +66,9 @@ public class HullbackSeatManager {
     public void validateAssignments() {
         if (whale.level().isClientSide) return;
 
-        java.util.Set<UUID> currentPassengerUUIDs = whale.getPassengers().stream()
+        Set<UUID> currentPassengerUUIDs = whale.getPassengers().stream()
                 .map(Entity::getUUID)
-                .collect(java.util.stream.Collectors.toSet());
+                .collect(Collectors.toSet());
 
         for (int seatIndex = 0; seatIndex < seatAccessors.length; seatIndex++) {
             EntityDataAccessor<Optional<UUID>> seatAccessor = getSeatAccessor(seatIndex);
@@ -74,7 +81,7 @@ public class HullbackSeatManager {
                     boolean shouldClear = true;
 
                     // "Smart" Check & Active Recovery
-                    if (whale.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+                    if (whale.level() instanceof ServerLevel serverLevel) {
                         Entity passengerEntity = serverLevel.getEntity(uuid);
                         
                         if (passengerEntity == null) {
@@ -124,11 +131,8 @@ public class HullbackSeatManager {
             setSeatData(seatIndex, Optional.empty());
         } else {
             whale.getEntityData().set(getSeatAccessor(seatIndex), Optional.of(passenger.getUUID()));
-            if (whale.level() instanceof net.minecraft.server.level.ServerLevel) {
-                ((net.minecraft.server.level.ServerLevel) whale.level()).getChunkSource().broadcast(
-                    whale, 
-                    new net.minecraft.network.protocol.game.ClientboundSetPassengersPacket(whale)
-                );
+            if (whale.level() instanceof ServerLevel serverLevel) {
+                serverLevel.getChunkSource().broadcast(whale, new ClientboundSetPassengersPacket(whale));
             }
         }
     }
@@ -169,7 +173,7 @@ public class HullbackSeatManager {
         Optional<UUID> uuid = getSeatData(seatIndex);
         if (uuid.isEmpty()) return Optional.empty();
         
-        if (whale.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+        if (whale.level() instanceof ServerLevel serverLevel) {
             Entity entity = serverLevel.getEntity(uuid.get());
             return Optional.ofNullable(entity);
         }
@@ -198,19 +202,31 @@ public class HullbackSeatManager {
                 continue;
             }
 
-            if (!(passenger instanceof net.minecraft.world.entity.player.Player)) {
-                if(!(passenger instanceof com.fruityspikes.whaleborne.server.entities.CannonEntity cannonEntity && cannonEntity.isVehicle())){
-                    if(passenger instanceof com.fruityspikes.whaleborne.server.entities.SailEntity){
-                        passenger.yRotO = (net.minecraft.util.Mth.rotLerp((float) (0.05 + 0.1 * partIndex), passenger.getYRot(), partManager.oldPartYRot[partIndex]) + offset);
-                        passenger.xRotO = (net.minecraft.util.Mth.rotLerp((float) (0.05 + 0.1 * partIndex), passenger.getXRot(), partManager.oldPartXRot[partIndex]));
-                        passenger.setYRot(net.minecraft.util.Mth.rotLerp((float) (0.05 + 0.1 * partIndex), passenger.getYRot(), partManager.partYRot[partIndex]) + offset);
-                        passenger.setXRot(net.minecraft.util.Mth.rotLerp((float) (0.05 + 0.1 * partIndex), passenger.getXRot(), partManager.partXRot[partIndex]));
+            if (!(passenger instanceof Player)) {
+                if (!(passenger instanceof CannonEntity cannonEntity && cannonEntity.isVehicle())) {
+                    float newYRot;
+                    float newXRot;
+
+                    if (passenger instanceof SailEntity) {
+                        float lerpFactor = (float) (0.05 + 0.1 * partIndex);
+                        newYRot = Mth.rotLerp(lerpFactor, passenger.getYRot(), partManager.partYRot[partIndex]) + offset;
+                        newXRot = Mth.rotLerp(lerpFactor, passenger.getXRot(), partManager.partXRot[partIndex]);
+                    } else {
+                        newYRot = partManager.partYRot[partIndex] + offset;
+                        newXRot = partManager.partXRot[partIndex];
                     }
-                    else {
-                        passenger.yRotO = partManager.oldPartYRot[partIndex];
-                        passenger.xRotO = partManager.oldPartXRot[partIndex];
-                        passenger.setYRot((partManager.partYRot[partIndex]) + offset);
-                        passenger.setXRot(partManager.partXRot[partIndex]);
+
+                    if (passenger instanceof WhaleWidgetEntity widget) {
+                        widget.prevWidgetYRot = widget.getYRot();
+                        widget.prevWidgetXRot = widget.getXRot();
+                    }
+
+                    passenger.setYRot(newYRot);
+                    passenger.setXRot(newXRot);
+                    passenger.setYBodyRot(newYRot);
+                    if (passenger instanceof LivingEntity livingWidget) {
+                        livingWidget.yHeadRot = newYRot;
+                        livingWidget.yBodyRot = newYRot;
                     }
                 }
             }

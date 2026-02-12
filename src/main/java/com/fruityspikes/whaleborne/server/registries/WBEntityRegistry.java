@@ -81,10 +81,5 @@ public class WBEntityRegistry {
     @SubscribeEvent
     public static void entityAttributes(EntityAttributeCreationEvent event) {
         event.put(HULLBACK.get(), HullbackEntity.createAttributes().build());
-//        event.put(SAIL.get(), SailEntity.createAttributes().build());
-//        event.put(CANNON.get(), CannonEntity.createAttributes().build());
-//        event.put(HELM.get(), HelmEntity.createAttributes().build());
-//        event.put(MAST.get(), MastEntity.createAttributes().build());
-//        event.put(ANCHOR.get(), HullbackEntity.createAttributes().build());
     }
 }

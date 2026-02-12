@@ -29,6 +29,8 @@ public class HullbackTryFindWaterGoal extends Goal {
     }
 
     public boolean canUse() {
+        if (mob instanceof HullbackEntity hullback && hullback.stationaryTicks > 0) return false;
+        
         if(isBeached)
             return mob.tickCount > 20 && !this.mob.isEyeInFluidType(Fluids.WATER.getFluidType());
         return mob.tickCount > 20 && !mob.level().getFluidState(mob.blockPosition().below()).is(FluidTags.WATER);

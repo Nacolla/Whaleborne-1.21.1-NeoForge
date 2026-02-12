@@ -1,15 +1,15 @@
 package com.fruityspikes.whaleborne.server.entities.components.hullback;
 
-import com.fruityspikes.whaleborne.Whaleborne;
+
 import com.fruityspikes.whaleborne.network.ToggleControlPayload;
 import com.fruityspikes.whaleborne.server.entities.HelmEntity;
 import com.fruityspikes.whaleborne.server.entities.HullbackEntity;
-import net.minecraft.network.syncher.EntityDataAccessor;
+
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.material.Fluids;
+
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -118,7 +118,7 @@ public class HullbackControlManager {
 
         boolean vectorControl = isVectorControlActive();
         
-        float xxa = player.xxa * 0.5F;
+        float xxa = player.xxa;
         float zza = player.zza;
 
         if (vectorControl) {
@@ -153,26 +153,12 @@ public class HullbackControlManager {
             xxa = 0; 
         }
 
-        float f3 = 0;
-        // Accessing nose via getter if available, or just check via whale if public? 
-        // Need access to nose. It's private in HullbackEntity. 
-        // But partManager has subEntities array.
-        // Or I can just check if whale is in water? Original checked nose.isEyeInFluidType.
-        // Assuming whale.getPartManager().subEntities[0] is nose.
-        
-        if(whale.getPartManager() != null && whale.getPartManager().subEntities[0].isEyeInFluidType(Fluids.WATER.getFluidType()))
-             f3 = 1;
-
-        // Anchor
+        // Buoyancy is handled in HullbackEntity.travel()
+        // Anchor horizontal logic remains here
         if (whale.hasAnchorDown() && whale.isInWater()) {
-             double targetY = whale.level().getSeaLevel() - 5.0;
-             double currentY = whale.getY();
-             double diff = targetY - currentY;
-             f3 = (float) Mth.clamp(diff * 0.05, -0.05, 0.05);
-             
              zza = 0; // Ensure no forward movement with anchor
         }
 
-        return new Vec3(0, f3, zza); 
+        return new Vec3(0, 0, zza); 
     }
 }

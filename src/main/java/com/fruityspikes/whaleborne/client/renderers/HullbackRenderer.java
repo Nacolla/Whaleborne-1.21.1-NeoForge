@@ -46,7 +46,6 @@ import java.util.Optional;
 public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<HullbackEntity, HullbackModel<HullbackEntity>> {
     public static final ResourceLocation MOB_TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/hullback.png");
     public static final ResourceLocation STEEN_TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/steen.png");
-    //public static final ResourceLocation MOBIUS_TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/mobius.png");
     public static final ResourceLocation SADDLE_TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/hullback_saddle.png");
     public static final ResourceLocation ARMOR_TEXTURE = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/armor/hullback_dark_oak_planks_armor.png");
     public static final ResourceLocation ARMOR_PROGRESS = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/hullback_armor_progress.png");
@@ -335,8 +334,6 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
     }
     @Override
     public ResourceLocation getTextureLocation(HullbackEntity entity) {
-//        if(entity.getDisplayName().getString().equals("Mobius"))
-//            return MOBIUS_TEXTURE;
         if(entity.getDisplayName().getString().equals("Steen"))
             return STEEN_TEXTURE;
         return MOB_TEXTURE;

@@ -26,10 +26,6 @@ public record HullbackHurtPayload(int entityId, ItemStack armorItem, ItemStack c
     }
 
     public static void handle(HullbackHurtPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> {
-            // Client-side handling logic needs to be verified. Assuming ClientPacketHandler exists and is updated.
-            // ClientPacketHandler.handleHullbackHurtSync(payload); // We will update ClientPacketHandler later
-             com.fruityspikes.whaleborne.network.ClientPacketHandler.handleHullbackHurtSync(payload);
-        });
+        context.enqueueWork(() -> ClientPacketHandler.handleHullbackHurtSync(payload));
     }
 }

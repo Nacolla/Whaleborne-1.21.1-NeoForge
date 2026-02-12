@@ -5,13 +5,21 @@ import com.fruityspikes.whaleborne.server.data.HullbackDirtManager;
 import com.fruityspikes.whaleborne.server.entities.HullbackEntity;
 import com.fruityspikes.whaleborne.server.entities.HullbackPartEntity;
 import com.fruityspikes.whaleborne.server.registries.WBSoundRegistry;
+import com.fruityspikes.whaleborne.server.registries.WBTagRegistry;
+import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.*;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
@@ -20,10 +28,6 @@ import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-
-import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
-import net.minecraft.tags.ItemTags;
 
 /**
  * Manages player interactions with the Hullback entity.
@@ -222,61 +226,56 @@ public class HullbackInteractionManager {
     }
 
     public InteractionResult handleVegetationRemoval(Player player, InteractionHand hand, HullbackPartEntity part, boolean top) {
-        net.minecraft.world.level.block.state.BlockState[][] dirtArray = hullback.HullbackDirt.getDirtArrayForPart(part, top);
-        net.minecraft.world.item.ItemStack held = player.getItemInHand(hand);
+        BlockState[][] dirtArray = hullback.HullbackDirt.getDirtArrayForPart(part, top);
+        ItemStack held = player.getItemInHand(hand);
 
         for (int x = 0; x < dirtArray.length; x++) {
             for (int y = 0; y < dirtArray[x].length; y++) {
-                net.minecraft.world.level.block.state.BlockState state = dirtArray[x][y];
+                BlockState state = dirtArray[x][y];
                 if (state == null || state.isAir()) continue;
 
-                HullbackDirtManager.HullbackDirtEntry entry = HullbackDirtManager.DATA.stream().filter(e -> e.matches(state)).findFirst().orElse(null);
-
+                HullbackDirtManager.HullbackDirtEntry entry = HullbackDirtManager.DATA.stream()
+                        .filter(e -> e.matches(state)).findFirst().orElse(null);
                 if (entry == null) continue;
 
                 boolean removable = entry.removableWith().contains("any") || entry.removableWith().contains(getToolType(held));
+                if (!removable) continue;
 
-                if (removable) {
-                    if (hullback.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
-                        float yOffset = top ? 5 : -1;
+                if (hullback.level() instanceof ServerLevel serverLevel) {
+                    float yOffset = top ? 5 : -1;
 
-                        serverLevel.sendParticles(
-                                new net.minecraft.core.particles.BlockParticleOption(net.minecraft.core.particles.ParticleTypes.BLOCK, HullbackDirt.applyProperties(entry.block(), entry.blockProperties())),
-                                hullback.position().x, hullback.position().y + yOffset, hullback.position().z,
-                                60,
-                                3,0.2,-3
-                                ,0);
+                    serverLevel.sendParticles(
+                            new BlockParticleOption(ParticleTypes.BLOCK, HullbackDirt.applyProperties(entry.block(), entry.blockProperties())),
+                            hullback.position().x, hullback.position().y + yOffset, hullback.position().z,
+                            60, 3, 0.2, -3, 0);
 
-                        dirtArray[x][y] = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
+                    dirtArray[x][y] = Blocks.AIR.defaultBlockState();
 
-                        if (entry.drop() != net.minecraft.world.item.Items.AIR) {
-                            for (int i = 0; i < entry.dropAmount(); i++) {
-                                net.minecraft.world.item.ItemStack dropStack = new net.minecraft.world.item.ItemStack(entry.drop());
-                                double px = part.getX() + y - part.getBbWidth() / 2.0;
-                                double py = part.getY() + (top ? part.getBbHeight() + 0.5f : -0.5f);
-                                double pz = part.getZ() - x + part.getBbWidth() / 2.0;
-                                net.minecraft.world.entity.item.ItemEntity itemEntity = new net.minecraft.world.entity.item.ItemEntity(hullback.level(), px, py, pz, dropStack);
-                                hullback.level().addFreshEntity(itemEntity);
-                            }
+                    if (entry.drop() != Items.AIR) {
+                        for (int i = 0; i < entry.dropAmount(); i++) {
+                            ItemStack dropStack = new ItemStack(entry.drop());
+                            double px = part.getX() + y - part.getBbWidth() / 2.0;
+                            double py = part.getY() + (top ? part.getBbHeight() + 0.5f : -0.5f);
+                            double pz = part.getZ() - x + part.getBbWidth() / 2.0;
+                            hullback.level().addFreshEntity(new ItemEntity(hullback.level(), px, py, pz, dropStack));
                         }
-
-                        if (!player.isCreative()) {
-                            player.getItemInHand(hand).hurtAndBreak(1, player, hand == InteractionHand.MAIN_HAND ? net.minecraft.world.entity.EquipmentSlot.MAINHAND : net.minecraft.world.entity.EquipmentSlot.OFFHAND);
-                        }
-
-                        if (entry.soundOnRemove() != null) {
-                            hullback.level().playSound(null, player.getX(), player.getY(), player.getZ(), entry.soundOnRemove(), SoundSource.PLAYERS, 1.0F, 1.0f);
-                        } else {
-                            hullback.level().playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.SHEEP_SHEAR, SoundSource.PLAYERS, 1.0F, 1.0f);
-                        }
-                        
-                        hullback.setMouthTarget(1.0f);
-                        hullback.HullbackDirt.syncDirtToClients();
-                    } else {
-                        dirtArray[x][y] = net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
                     }
-                    return InteractionResult.SUCCESS;
+
+                    if (!player.isCreative()) {
+                        EquipmentSlot slot = hand == InteractionHand.MAIN_HAND ? EquipmentSlot.MAINHAND : EquipmentSlot.OFFHAND;
+                        player.getItemInHand(hand).hurtAndBreak(1, player, slot);
+                    }
+
+                    hullback.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                            entry.soundOnRemove() != null ? entry.soundOnRemove() : SoundEvents.SHEEP_SHEAR,
+                            SoundSource.PLAYERS, 1.0F, 1.0f);
+
+                    hullback.setMouthTarget(1.0f);
+                    hullback.HullbackDirt.syncDirtToClients();
+                } else {
+                    dirtArray[x][y] = Blocks.AIR.defaultBlockState();
                 }
+                return InteractionResult.SUCCESS;
             }
         }
 
@@ -284,99 +283,98 @@ public class HullbackInteractionManager {
     }
 
     public InteractionResult interactArmor(Player player, InteractionHand hand, HullbackPartEntity part, Boolean top) {
-        net.minecraft.world.item.ItemStack heldItem = player.getItemInHand(hand);
+        ItemStack heldItem = player.getItemInHand(hand);
 
-        if (heldItem.getItem() instanceof net.minecraft.world.item.SaddleItem) {
-            if (!hullback.isSaddled()) {
-                if (hullback.isTamed()) {
-                    net.minecraft.world.item.ItemStack saddleToEquip = heldItem.copy();
-                    saddleToEquip.setCount(1);
-                    hullback.equipSaddle(saddleToEquip, SoundSource.PLAYERS);
-                    if (!player.getAbilities().instabuild) {
-                        heldItem.shrink(1);
-                    }
-                    hullback.level().playSound(null, hullback.getX(), hullback.getY(), hullback.getZ(),
-                            SoundEvents.HORSE_SADDLE,
-                            SoundSource.PLAYERS, 1.0F, 0.1F);
-                    return InteractionResult.SUCCESS;
-                } else {
-                    hullback.setMouthTarget(0.3f);
-                    hullback.playSound(com.fruityspikes.whaleborne.server.registries.WBSoundRegistry.HULLBACK_MAD.get());
-                    return InteractionResult.PASS;
-                }
-            }
-            return InteractionResult.PASS;
-        }
-        else if (heldItem.is(com.fruityspikes.whaleborne.server.registries.WBTagRegistry.HULLBACK_EQUIPPABLE)) {
-            if (!hullback.isSaddled()) {
-                hullback.setMouthTarget(0.3f);
-                hullback.playSound(com.fruityspikes.whaleborne.server.registries.WBSoundRegistry.HULLBACK_MAD.get());
-                return InteractionResult.PASS;
-            }
-
-            net.minecraft.world.item.ItemStack currentArmor = hullback.getInventory().getItem(HullbackEntity.INV_SLOT_ARMOR);
-
-            if (currentArmor.getCount() == currentArmor.getMaxStackSize()){
-                hullback.setMouthTarget(0.3f);
-                hullback.playSound(com.fruityspikes.whaleborne.server.registries.WBSoundRegistry.HULLBACK_MAD.get());
-                return InteractionResult.PASS;
-            }
-
-            if (currentArmor.getCount() < currentArmor.getMaxStackSize()) {
-                if (currentArmor.isEmpty()) {
-                    net.minecraft.world.item.ItemStack newArmor = new net.minecraft.world.item.ItemStack(heldItem.getItem(), 1);
-                    hullback.getInventory().setItem(HullbackEntity.INV_SLOT_ARMOR, newArmor);
-                    hullback.updateContainerEquipment();
-                } else {
-                    if (heldItem.getItem() == currentArmor.getItem()) {
-                        if (player.isCreative()) {
-                            currentArmor.setCount(64);
-                        } else {
-                            currentArmor.grow(1);
-                        }
-
-                        hullback.getEntityData().set(HullbackEntity.DATA_ARMOR, currentArmor.copy());
-                    } else {
-                        hullback.setMouthTarget(0.3f);
-                        hullback.playSound(com.fruityspikes.whaleborne.server.registries.WBSoundRegistry.HULLBACK_MAD.get());
-                        return InteractionResult.PASS;
-                    }
-                }
-
-                if (!player.getAbilities().instabuild) {
-                    heldItem.shrink(1);
-                }
-
-                hullback.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                        SoundEvents.WOOD_PLACE,
-                        SoundSource.PLAYERS, 1.0F, 1.0F);
-                hullback.level().playSound(null, player.getX(), player.getY(), player.getZ(),
-                        SoundEvents.ITEM_FRAME_REMOVE_ITEM,
-                        SoundSource.PLAYERS, 1.0F, 0.5f + ((float) currentArmor.getCount() /64));
-                if(currentArmor.getCount()==64){
-                    hullback.level().playSound(null, hullback.getX(), hullback.getY(), hullback.getZ(),
-                            SoundEvents.ZOMBIE_BREAK_WOODEN_DOOR,
-                            SoundSource.PLAYERS, 2.0F, 1.0F);
-                    hullback.playSound(com.fruityspikes.whaleborne.server.registries.WBSoundRegistry.HULLBACK_TAME.get());
-
-                }
-                hullback.updateContainerEquipment();
-                return InteractionResult.SUCCESS;
-            }
-            return InteractionResult.PASS;
+        if (heldItem.getItem() instanceof SaddleItem) {
+            return handleSaddleEquip(player, hand, heldItem);
+        } else if (heldItem.is(WBTagRegistry.HULLBACK_EQUIPPABLE)) {
+            return handleArmorEquip(player, hand, heldItem);
         }
         return InteractionResult.PASS;
     }
 
-    private String getToolType(net.minecraft.world.item.ItemStack stack) {
+    private InteractionResult handleSaddleEquip(Player player, InteractionHand hand, ItemStack heldItem) {
+        if (hullback.isSaddled()) return InteractionResult.PASS;
+
+        if (!hullback.isTamed()) {
+            rejectWithMad();
+            return InteractionResult.PASS;
+        }
+
+        ItemStack saddleToEquip = heldItem.copy();
+        saddleToEquip.setCount(1);
+        hullback.equipSaddle(saddleToEquip, SoundSource.PLAYERS);
+        if (!player.getAbilities().instabuild) {
+            heldItem.shrink(1);
+        }
+        hullback.level().playSound(null, hullback.getX(), hullback.getY(), hullback.getZ(),
+                SoundEvents.HORSE_SADDLE, SoundSource.PLAYERS, 1.0F, 0.1F);
+        return InteractionResult.SUCCESS;
+    }
+
+    private InteractionResult handleArmorEquip(Player player, InteractionHand hand, ItemStack heldItem) {
+        if (!hullback.isSaddled()) {
+            rejectWithMad();
+            return InteractionResult.PASS;
+        }
+
+        ItemStack currentArmor = hullback.getInventory().getItem(HullbackEntity.INV_SLOT_ARMOR);
+
+        if (currentArmor.getCount() >= currentArmor.getMaxStackSize()) {
+            rejectWithMad();
+            return InteractionResult.PASS;
+        }
+
+        if (currentArmor.isEmpty()) {
+            hullback.getInventory().setItem(HullbackEntity.INV_SLOT_ARMOR, new ItemStack(heldItem.getItem(), 1));
+            hullback.updateContainerEquipment();
+        } else if (heldItem.getItem() == currentArmor.getItem()) {
+            if (player.isCreative()) {
+                currentArmor.setCount(64);
+            } else {
+                currentArmor.grow(1);
+            }
+            hullback.getEntityData().set(HullbackEntity.DATA_ARMOR, currentArmor.copy());
+        } else {
+            rejectWithMad();
+            return InteractionResult.PASS;
+        }
+
+        if (!player.getAbilities().instabuild) {
+            heldItem.shrink(1);
+        }
+
+        hullback.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                SoundEvents.WOOD_PLACE, SoundSource.PLAYERS, 1.0F, 1.0F);
+        hullback.level().playSound(null, player.getX(), player.getY(), player.getZ(),
+                SoundEvents.ITEM_FRAME_REMOVE_ITEM, SoundSource.PLAYERS,
+                1.0F, 0.5f + ((float) currentArmor.getCount() / 64));
+
+        if (currentArmor.getCount() == 64) {
+            hullback.level().playSound(null, hullback.getX(), hullback.getY(), hullback.getZ(),
+                    SoundEvents.ZOMBIE_BREAK_WOODEN_DOOR, SoundSource.PLAYERS, 2.0F, 1.0F);
+            hullback.playSound(WBSoundRegistry.HULLBACK_TAME.get());
+        }
+
+        hullback.updateContainerEquipment();
+        return InteractionResult.SUCCESS;
+    }
+
+    /** Plays the rejection animation and sound. */
+    private void rejectWithMad() {
+        hullback.setMouthTarget(0.3f);
+        hullback.playSound(WBSoundRegistry.HULLBACK_MAD.get());
+    }
+
+    private String getToolType(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return "hand";
-        net.minecraft.world.item.Item item = stack.getItem();
-        if (item instanceof net.minecraft.world.item.ShearsItem) return "shears";
-        if (item instanceof net.minecraft.world.item.AxeItem || stack.is(net.minecraft.tags.ItemTags.AXES)) return "axe";
-        if (item instanceof net.minecraft.world.item.PickaxeItem || stack.is(net.minecraft.tags.ItemTags.PICKAXES)) return "pickaxe";
-        if (item instanceof net.minecraft.world.item.HoeItem || stack.is(net.minecraft.tags.ItemTags.HOES)) return "hoe";
-        if (item instanceof net.minecraft.world.item.ShovelItem || stack.is(net.minecraft.tags.ItemTags.SHOVELS)) return "shovel";
-        if (item instanceof net.minecraft.world.item.SwordItem || stack.is(net.minecraft.tags.ItemTags.SWORDS)) return "sword";
+        Item item = stack.getItem();
+        if (item instanceof ShearsItem) return "shears";
+        if (item instanceof AxeItem || stack.is(ItemTags.AXES)) return "axe";
+        if (item instanceof PickaxeItem || stack.is(ItemTags.PICKAXES)) return "pickaxe";
+        if (item instanceof HoeItem || stack.is(ItemTags.HOES)) return "hoe";
+        if (item instanceof ShovelItem || stack.is(ItemTags.SHOVELS)) return "shovel";
+        if (item instanceof SwordItem || stack.is(ItemTags.SWORDS)) return "sword";
         return "hand";
     }
 

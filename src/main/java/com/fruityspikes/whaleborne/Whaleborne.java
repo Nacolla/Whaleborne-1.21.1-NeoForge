@@ -52,24 +52,10 @@ public class Whaleborne
         modEventBus.addListener(this::registerSpawnPlacements);
         modContainer.registerConfig(ModConfig.Type.CLIENT, Config.CLIENT_SPEC);
     }
-    private void commonSetup(final FMLCommonSetupEvent event)
-    {
-        // Some common setup code
-        //LOGGER.info("HELLO FROM COMMON SETUP");
-
-        //if (Config.logDirtBlock)
-        //    LOGGER.info("DIRT BLOCK >> {}", ForgeRegistries.BLOCKS.getKey(Blocks.DIRT));
-
-        //LOGGER.info(Config.magicNumberIntroduction + Config.magicNumber);
-
-        //Config.items.forEach((item) -> LOGGER.info("ITEM >> {}", item.toString()));
+    private void commonSetup(final FMLCommonSetupEvent event) {
     }
 
-    // Add the example block item to the building blocks tab
-    private void addCreative(BuildCreativeModeTabContentsEvent event)
-    {
-        //if (event.getTabKey() == CreativeModeTabs.BUILDING_BLOCKS)
-        //    event.accept(EXAMPLE_BLOCK_ITEM);
+    private void addCreative(BuildCreativeModeTabContentsEvent event) {
     }
 
     public void registerSpawnPlacements(RegisterSpawnPlacementsEvent event) {
@@ -87,7 +73,7 @@ public class Whaleborne
     public void onServerStarting(ServerStartingEvent event)
     {
         // Do something when the server starts
-        LOGGER.info("HELLO from server starting");
+        // Server starting hook
     }
 
 

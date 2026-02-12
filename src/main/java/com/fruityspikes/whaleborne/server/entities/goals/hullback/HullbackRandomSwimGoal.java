@@ -30,8 +30,7 @@ public class HullbackRandomSwimGoal extends RandomSwimmingGoal {
 
     @Override
     public boolean canUse() {
-
-        if (mob.hasAnchorDown()) {
+        if (mob.stationaryTicks > 0 || mob.hasAnchorDown() || mob.getControllingPassenger() != null) {
             return false;
         }
 
@@ -39,8 +38,7 @@ public class HullbackRandomSwimGoal extends RandomSwimmingGoal {
             if (this.mob.getNoActionTime() >= 100) {
                 return false;
             }
-
-            if (this.mob.getRandom().nextInt(reducedTickDelay(this.interval)) != 0) {
+            if (this.mob.getRandom().nextInt(60) != 0) {
                 return false;
             }
         }
@@ -48,21 +46,21 @@ public class HullbackRandomSwimGoal extends RandomSwimmingGoal {
         Vec3 vec3 = this.getPosition();
         if (vec3 == null) {
             return false;
-        } else {
-            this.wantedX = vec3.x;
-            this.wantedY = vec3.y;
-            this.wantedZ = vec3.z;
-            this.forceTrigger = false;
-            this.currentTarget = getPosition();
-            this.stuckTimer = 0;
-            this.lastPosition = mob.position();
-            return true;
         }
+
+        this.wantedX = vec3.x;
+        this.wantedY = vec3.y;
+        this.wantedZ = vec3.z;
+        this.forceTrigger = false;
+        this.currentTarget = getPosition(); // Keep this line from original logic
+        this.stuckTimer = 0; // Keep this line from original logic
+        this.lastPosition = mob.position(); // Keep this line from original logic
+        return true;
     }
 
     @Override
     public boolean canContinueToUse() {
-        if (currentTarget == null) {
+        if (mob.stationaryTicks > 0 || mob.hasAnchorDown() || mob.getControllingPassenger() != null) {
             return false;
         }
 
@@ -96,28 +94,15 @@ public class HullbackRandomSwimGoal extends RandomSwimmingGoal {
     public void tick() {
         super.tick();
 
-        // Lógica de flutuação inteligente - mantém a Hullback DOMADA em profundidade adequada
-        // Altura alvo: 5 blocos abaixo do nível do mar
-        double targetY = mob.level().getSeaLevel() - 5.0;
-        double currentY = mob.getY();
-        double diff = targetY - currentY;
-        
         if (mob.isInWater()) {
-            if (mob.isTamed()) {
-                // Hullbacks domadas: ajusta altura bidirecionalmente (sobe se muito fundo, desce se muito raso)
-                if (Math.abs(diff) > 0.1) {
-                    double adjustSpeed = Mth.clamp(diff * 0.05, -0.1, 0.1);
-                    mob.setDeltaMovement(
-                        mob.getDeltaMovement().x, 
-                        adjustSpeed, 
-                        mob.getDeltaMovement().z
-                    );
-                }
-            } else {
-                // Não-domadas: quando nariz sai da água, empurra de volta para baixo
-                if (!mob.getSubEntities()[0].isEyeInFluidType(net.minecraft.world.level.material.Fluids.WATER.getFluidType())) {
-                    mob.setDeltaMovement(0, -0.1, 0);
-                }
+            boolean noseSubmerged = mob.getPartManager() != null && 
+                                   mob.getPartManager().subEntities != null && 
+                                   mob.getPartManager().subEntities.length > 0 && 
+                                   mob.getPartManager().subEntities[0].isEyeInFluidType(net.minecraft.world.level.material.Fluids.WATER.getFluidType());
+
+            // Only push down if surfacing (nose out of water)
+            if (!noseSubmerged) {
+                mob.setDeltaMovement(mob.getDeltaMovement().add(0, -0.1, 0));
             }
         }
 

@@ -32,6 +32,8 @@ public abstract class WhaleWidgetEntity extends Entity {
     private static final EntityDataAccessor<Integer> DATA_ID_HURTDIR = SynchedEntityData.defineId(WhaleWidgetEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Float> DATA_ID_DAMAGE = SynchedEntityData.defineId(WhaleWidgetEntity.class, EntityDataSerializers.FLOAT);
     protected Item item;
+    public float prevWidgetYRot;
+    public float prevWidgetXRot;
     public WhaleWidgetEntity(EntityType<?> entityType, Level level, Item dropItem) {
         super(entityType, level);
         this.item = dropItem;

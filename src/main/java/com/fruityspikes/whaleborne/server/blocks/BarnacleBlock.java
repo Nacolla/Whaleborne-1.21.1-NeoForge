@@ -64,30 +64,6 @@ public class BarnacleBlock extends Block {
             level.setBlock(pos, (BlockState)state.setValue(POWERED, flag), 3);
         }
 
-        //        boolean flag = level.hasNeighborSignal(pos);
-//        level.addParticle(ParticleTypes.EXPLOSION, pos.getX(), pos.getY(), pos.getZ(), 0.0, 0.005, 0.0);
-//
-//        if (flag != state.getValue(POWERED)) {
-//            if (flag) {
-//                int count = 0;
-//
-//                Block thisBlock = level.getBlockState(pos).getBlock();
-//                BlockPos checkPos = pos.above();
-//
-//                while (level.getBlockState(checkPos).getBlock() == thisBlock && count < 20) {
-//                    count++;
-//                    checkPos = checkPos.above();
-//                }
-//
-//                int stackHeight = count;
-//                float pitch = Math.min(2f, stackHeight * 0.22f);
-//
-//                if (!level.isClientSide) {
-//                    level.playSound(null, pos, WBSoundRegistry.ORGAN.get(), SoundSource.BLOCKS, 0.5F, pitch);
-//                }
-//            }
-//        }
-//        level.setBlock(pos, state.setValue(POWERED, flag), 3);
     }
 
     private void playNote(@Nullable Entity entity, BlockState state, Level level, BlockPos pos) {

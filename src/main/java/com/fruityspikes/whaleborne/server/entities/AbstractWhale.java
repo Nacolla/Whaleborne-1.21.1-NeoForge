@@ -15,7 +15,6 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.Container;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.world.ContainerListener;
 import javax.annotation.Nullable;
 
     public abstract class AbstractWhale extends WaterAnimal implements ContainerListener {
@@ -24,8 +23,8 @@ import javax.annotation.Nullable;
 
     public static final EntityDataAccessor<Byte> DATA_ID_FLAGS = SynchedEntityData.defineId(AbstractWhale.class, EntityDataSerializers.BYTE);
 
-    protected AbstractWhale(EntityType<? extends WaterAnimal> p_30341_, Level p_30342_) {
-        super(p_30341_, p_30342_);
+    protected AbstractWhale(EntityType<? extends WaterAnimal> entityType, Level level) {
+        super(entityType, level);
         this.createInventory();
     }
 
@@ -144,11 +143,11 @@ import javax.annotation.Nullable;
         return false;
     }
 
-    public void setId(int p_20235_) {
-        super.setId(p_20235_);
+    public void setId(int id) {
+        super.setId(id);
         PartEntity<?>[] parts = this.getParts();
         for (int i = 0; i < parts.length; i++) {
-            parts[i].setId(p_20235_ + i + 1);
+            parts[i].setId(id + i + 1);
         }
     }
 

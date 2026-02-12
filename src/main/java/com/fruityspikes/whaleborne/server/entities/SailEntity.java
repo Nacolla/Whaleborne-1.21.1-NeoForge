@@ -3,7 +3,6 @@ package com.fruityspikes.whaleborne.server.entities;
 import com.fruityspikes.whaleborne.server.registries.WBItemRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -20,13 +19,10 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.IntStream;
 import net.minecraft.world.phys.Vec3;
 
 public class SailEntity extends WhaleWidgetEntity{
-    private float SPEED_MODIFIER = 1.0F;
+    private static final float SPEED_MODIFIER = 1.0F;
     public static final EntityDataAccessor<ItemStack> DATA_BANNER = SynchedEntityData.defineId(SailEntity.class, EntityDataSerializers.ITEM_STACK);
 
     public SailEntity(EntityType<?> entityType, Level level) {

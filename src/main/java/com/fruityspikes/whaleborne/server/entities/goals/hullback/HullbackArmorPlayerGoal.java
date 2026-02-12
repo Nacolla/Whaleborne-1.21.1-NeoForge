@@ -50,12 +50,12 @@ public class HullbackArmorPlayerGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        if (!hullback.isTamed()) return false;
+        if (hullback.hasAnchorDown()) return false;
 
-        if (!hullback.isTamed())
-            return false;
-
-        if (hullback.hasAnchorDown())
-            return false;
+        // Yield to breaching when air supply is critically low
+        if (hullback.getAirSupply() < hullback.getMaxAirSupply() * 0.2) return false;
+        if (hullback.isBreaching()) return false;
 
         this.targetPlayer = this.hullback.level().getNearestPlayer(this.targetingConditions, this.hullback, 30, 50, 30);
         if (this.targetPlayer == null) return false;
@@ -66,6 +66,9 @@ public class HullbackArmorPlayerGoal extends Goal {
 
     @Override
     public boolean canContinueToUse() {
+        // Interrupt immediately if whale needs to breach
+        if (hullback.getAirSupply() < hullback.getMaxAirSupply() * 0.2) return false;
+        if (hullback.isBreaching()) return false;
         return canUse();
     }
 

@@ -11,7 +11,7 @@ import net.minecraft.world.phys.Vec3;
 import java.util.EnumSet;
 
 public class HullbackBreathAirGoal extends Goal {
-    private static final int BREACH_HEIGHT = 5; // Blocks above surface to breach
+    private static final int BREACH_HEIGHT = 10; // Blocks above surface to breach
     private static final float BREACH_SPEED = 1.2f;
     private static final float ROTATION_SPEED = 10f;
 
@@ -27,7 +27,13 @@ public class HullbackBreathAirGoal extends Goal {
 
     @Override
     public boolean canUse() {
+        if(hullback.stationaryTicks > 0) return false;
 
+        for (net.minecraft.world.entity.Entity passenger : hullback.getPassengers()) {
+            if (passenger instanceof net.minecraft.world.entity.player.Player) {
+                return false;
+            }
+        }
         if (breachCooldown > 0) {
             breachCooldown--;
             return false;
@@ -44,6 +50,7 @@ public class HullbackBreathAirGoal extends Goal {
     @Override
     public void start() {
         this.isBreaching = true;
+        this.hullback.setBreaching(true);
         this.initialPos = this.hullback.position();
         this.hullback.getNavigation().stop();
 
@@ -70,8 +77,9 @@ public class HullbackBreathAirGoal extends Goal {
         this.hullback.setXRot(Mth.rotLerp(ROTATION_SPEED * 0.1f, this.hullback.getXRot(), targetXRot));
 
         if (this.hullback.isInWater()) {
-            this.hullback.setDeltaMovement(new Vec3(0.3, 0.8, 0).yRot(this.hullback.getYRot())
-            );
+            float yRotRad = this.hullback.getYRot() * (float) (Math.PI / 180.0);
+            
+            this.hullback.setDeltaMovement(new Vec3(0, 1.2, 0.8).yRot(-yRotRad));
         }
 
         if (this.hullback.getY() >= this.hullback.level().getSeaLevel() &&
@@ -89,6 +97,7 @@ public class HullbackBreathAirGoal extends Goal {
     @Override
     public void stop() {
         this.isBreaching = false;
+        this.hullback.setBreaching(false);
         this.breachCooldown = 200;
 
         this.hullback.setAirSupply(this.hullback.getMaxAirSupply());

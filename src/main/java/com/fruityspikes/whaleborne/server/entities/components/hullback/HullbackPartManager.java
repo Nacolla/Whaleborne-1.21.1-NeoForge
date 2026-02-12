@@ -35,6 +35,16 @@ public class HullbackPartManager {
             new Vec3(0, 1.6f, -0.8) //fluke
     };
 
+    private static final float[] PART_DRAG_FACTORS = {1f, 0.9f, 0.2f, 0.1f, 0.09f};
+    private static final Vec3[] BASE_OFFSETS = {
+            new Vec3(0, 0, 6),      // Nose
+            new Vec3(0, 0, 2.5),    // Head
+            new Vec3(0, 0, -2.25),  // Body
+            new Vec3(0, 0, -7),     // Tail
+            new Vec3(0, 0, -11)     // Fluke
+    };
+    private static final double[] MAX_DIST = {10.0, 3.55, 4.8, 4.8, 4.1};
+
     public HullbackPartManager(HullbackEntity hullback, HullbackPartEntity[] subEntities) {
         this.hullback = hullback;
         this.subEntities = subEntities;
@@ -54,71 +64,48 @@ public class HullbackPartManager {
     }
 
     public void updatePartPositions() {
-        float[] partDragFactors = new float[]{1f, 0.9f, 0.2f, 0.1f, 0.09f};
-
-        Vec3[] baseOffsets = {
-                new Vec3(0, 0, 6),      // Nose
-                new Vec3(0, 0, 2.5),    // Head
-                new Vec3(0, 0, -2.25),  // Body
-                new Vec3(0, 0, -7),     // Tail
-                new Vec3(0, 0, -11)     // Fluke
-        };
+        // Work array — recomputed each tick from immutable BASE_OFFSETS
+        Vec3[] offsets = new Vec3[BASE_OFFSETS.length];
+        for (int i = 0; i < BASE_OFFSETS.length; i++) {
+            offsets[i] = BASE_OFFSETS[i];
+        }
 
         if (prevPartPositions[0] == null) {
             float yawRadInit = -hullback.getYRot() * Mth.DEG_TO_RAD;
             float pitchRadInit = hullback.getXRot() * Mth.DEG_TO_RAD;
             for (int i = 0; i < prevPartPositions.length; i++) {
-                Vec3 initBaseOffset = switch(i) {
-                     case 0 -> new Vec3(0, 0, 6);
-                     case 1 -> new Vec3(0, 0, 2.5);
-                     case 2 -> new Vec3(0, 0, -2.25);
-                     case 3 -> new Vec3(0, 0, -7);
-                     case 4 -> new Vec3(0, 0, -11);
-                     default -> Vec3.ZERO;
-                };
-                
-                Vec3 rotatedOffset = initBaseOffset.yRot(yawRadInit).xRot(pitchRadInit);
+                Vec3 rotatedOffset = BASE_OFFSETS[i].yRot(yawRadInit).xRot(pitchRadInit);
                 prevPartPositions[i] = hullback.position().add(rotatedOffset);
             }
         }
 
-        float swimCycle = (float) (Mth.sin(hullback.tickCount * 0.1f) * hullback.getDeltaMovement().length());
+        Vec3 delta = hullback.getDeltaMovement();
+        float horizontalSpeed = (float) Math.sqrt(delta.x * delta.x + delta.z * delta.z);
+        float swimCycle = Mth.sin(hullback.tickCount * 0.1f) * horizontalSpeed;
         float yawRad = -hullback.getYRot() * Mth.DEG_TO_RAD;
         float pitchRad = hullback.getXRot() * Mth.DEG_TO_RAD;
 
-        for (int i = 0; i < baseOffsets.length; i++) {
-            baseOffsets[i] = baseOffsets[i]
+        for (int i = 0; i < offsets.length; i++) {
+            offsets[i] = offsets[i]
                     .yRot(yawRad)
                     .xRot(pitchRad);
 
-            baseOffsets[i] = new Vec3(
-                    hullback.getX() + baseOffsets[i].x,
-                    hullback.getY() + baseOffsets[i].y,
-                    hullback.getZ() + baseOffsets[i].z
-            );
+            offsets[i] = offsets[i].add(hullback.getX(), hullback.getY(), hullback.getZ());
 
             if (i > 0) {
-                baseOffsets[i] = new Vec3(
-                        Mth.lerp(partDragFactors[i], prevPartPositions[i].x, baseOffsets[i].x),
-                        Mth.lerp(partDragFactors[i], prevPartPositions[i].y, baseOffsets[i].y),
-                        Mth.lerp(partDragFactors[i], prevPartPositions[i].z, baseOffsets[i].z)
+                offsets[i] = new Vec3(
+                        Mth.lerp(PART_DRAG_FACTORS[i], prevPartPositions[i].x, offsets[i].x),
+                        Mth.lerp(PART_DRAG_FACTORS[i], prevPartPositions[i].y, offsets[i].y),
+                        Mth.lerp(PART_DRAG_FACTORS[i], prevPartPositions[i].z, offsets[i].z)
                 );
-                
-                double maxDist = switch(i) {
-                     case 1 -> 3.55;
-                     case 2 -> 4.8;
-                     case 3 -> 4.8;
-                     case 4 -> 4.1;
-                     default -> 10.0;
-                };
-                
+
                 Vec3 parentPos = prevPartPositions[i-1];
-                double dist = baseOffsets[i].distanceTo(parentPos);
-                if (dist > maxDist) {
-                     baseOffsets[i] = parentPos.add(baseOffsets[i].subtract(parentPos).normalize().scale(maxDist));
+                double dist = offsets[i].distanceTo(parentPos);
+                if (dist > MAX_DIST[i]) {
+                     offsets[i] = parentPos.add(offsets[i].subtract(parentPos).normalize().scale(MAX_DIST[i]));
                 }
             }
-            prevPartPositions[i] = baseOffsets[i];
+            prevPartPositions[i] = offsets[i];
         }
 
         this.partPosition[0] = prevPartPositions[0];
@@ -167,7 +154,7 @@ public class HullbackPartManager {
         float flukeYaw = calculateYaw(subEntities[3].position(), flukeTarget);
         float flukePitch = calculatePitch(subEntities[3].position(), flukeTarget);
 
-        flukeYaw = Mth.rotLerp(partDragFactors[4], oldPartYRot[4], flukeYaw);
+        flukeYaw = Mth.rotLerp(PART_DRAG_FACTORS[4], oldPartYRot[4], flukeYaw);
         float flukeXRot = flukePitch * 1.5f + swimCycle * 30f;
 
         this.partPosition[4] = flukeTarget;

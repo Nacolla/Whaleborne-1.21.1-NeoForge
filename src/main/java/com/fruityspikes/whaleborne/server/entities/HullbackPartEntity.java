@@ -5,30 +5,15 @@ import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.Pose;
 import com.fruityspikes.whaleborne.server.items.WhaleEquipment;
-import com.fruityspikes.whaleborne.server.registries.WBEntityRegistry;
 import com.fruityspikes.whaleborne.server.registries.WBTagRegistry;
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.mojang.math.Axis;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.*;
-import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.*;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.neoforge.common.DeferredSpawnEggItem;
 
 import javax.annotation.Nullable;
 
@@ -111,74 +96,68 @@ public class HullbackPartEntity extends PartEntity<HullbackEntity> {
             return getParent().interactArmor(player, hand, this, topClicked);
         }
 
-        if (heldItem.isEmpty()){
-            if(this.name == "tail")
-                return getParent().interact(player, hand);
-            if(this.name == "fluke")
-                return getParent().interactRide(player, hand,6, null);
-            if(topClicked){
-                if(this.name == "body"){
-                    Vec3 localClick = new Vec3(vec.x, 0, vec.z);
-
-                    float inverseYaw = this.getYRot() * Mth.DEG_TO_RAD;
-                    localClick = localClick.xRot(0).yRot(inverseYaw);
-                    double angle = Math.atan2(localClick.z, localClick.x) + Math.PI;
-                    int quadrant = (int)(angle / (Math.PI/2)) % 4;
-
-                    switch(quadrant) {
-                        case 0: return getParent().interactRide(player, hand, 5, null);
-                        case 1: return getParent().interactRide(player, hand, 4, null);
-                        case 2: return getParent().interactRide(player, hand, 2, null);
-                        default: return getParent().interactRide(player, hand, 3, null);
-                    }
-                }
-                if(this.name == "nose")
-                    return getParent().interactRide(player, hand,0, null);
-                if(this.name == "head")
-                    return getParent().interactRide(player, hand,1, null);
-            }
-            return getParent().interact(player, hand);
+        if (heldItem.isEmpty()) {
+            return handleSeatInteraction(player, hand, vec, topClicked, null);
         }
 
-
-        if ((heldItem.getItem() instanceof WhaleEquipment) || (heldItem.getItem() instanceof SpawnEggItem)){
+        if ((heldItem.getItem() instanceof WhaleEquipment) || (heldItem.getItem() instanceof SpawnEggItem)) {
             EntityType<?> entity;
-
-            if(heldItem.getItem() instanceof SpawnEggItem spawnEggItem)
-               entity = spawnEggItem.getType(heldItem);
-            else if(heldItem.getItem() instanceof WhaleEquipment whaleEquipment)
+            if (heldItem.getItem() instanceof SpawnEggItem spawnEggItem)
+                entity = spawnEggItem.getType(heldItem);
+            else if (heldItem.getItem() instanceof WhaleEquipment whaleEquipment)
                 entity = whaleEquipment.getEntity();
-            else entity = EntityType.EXPERIENCE_ORB;
+            else
+                entity = EntityType.EXPERIENCE_ORB;
 
-            if(this.name == "tail")
-                return getParent().interact(player, hand);
-            if(this.name == "fluke")
-                return getParent().interactRide(player, hand,6, entity);
-            if(topClicked){
-                if(this.name == "body"){
-                    Vec3 localClick = new Vec3(vec.x, 0, vec.z);
-
-                    float inverseYaw = this.getYRot() * Mth.DEG_TO_RAD;
-                    localClick = localClick.xRot(0).yRot(inverseYaw);
-                    double angle = Math.atan2(localClick.z, localClick.x) + Math.PI;
-                    int quadrant = (int)(angle / (Math.PI/2)) % 4;
-
-                    switch(quadrant) {
-                        case 0: return getParent().interactRide(player, hand, 5, entity);
-                        case 1: return getParent().interactRide(player, hand, 4, entity);
-                        case 2: return getParent().interactRide(player, hand, 2, entity);
-                        default: return getParent().interactRide(player, hand, 3, entity);
-                    }
-                }
-                if(this.name == "nose")
-                    return getParent().interactRide(player, hand,0, entity);
-                if(this.name == "head")
-                    return getParent().interactRide(player, hand,1, entity);
-            }
-            return getParent().interact(player, hand);
+            return handleSeatInteraction(player, hand, vec, topClicked, entity);
         }
 
         InteractionResult result = getParent().interactClean(player, hand, this, topClicked);
         return result.consumesAction() ? result : getParent().interact(player, hand);
+    }
+
+    /**
+     * Unified seat interaction logic for both empty hand and equipment placement.
+     * @param player The interacting player
+     * @param hand The hand used
+     * @param vec Click position vector
+     * @param topClicked Whether the top of the part was clicked
+     * @param entityType Entity type to place, or null for player mounting
+     * @return The interaction result
+     */
+    private InteractionResult handleSeatInteraction(Player player, InteractionHand hand, Vec3 vec, boolean topClicked, @Nullable EntityType<?> entityType) {
+        if ("tail".equals(this.name))
+            return getParent().interact(player, hand);
+        if ("fluke".equals(this.name))
+            return getParent().interactRide(player, hand, 6, entityType);
+        if (topClicked) {
+            if ("body".equals(this.name)) {
+                int seatIndex = getBodySeatFromClick(vec);
+                return getParent().interactRide(player, hand, seatIndex, entityType);
+            }
+            if ("nose".equals(this.name))
+                return getParent().interactRide(player, hand, 0, entityType);
+            if ("head".equals(this.name))
+                return getParent().interactRide(player, hand, 1, entityType);
+        }
+        return getParent().interact(player, hand);
+    }
+
+    /**
+     * Determines seat index from click position on the body part.
+     */
+    private int getBodySeatFromClick(Vec3 vec) {
+        Vec3 localClick = new Vec3(vec.x, 0, vec.z);
+        float inverseYaw = this.getYRot() * Mth.DEG_TO_RAD;
+        localClick = localClick.yRot(inverseYaw);
+        double angle = Math.atan2(localClick.z, localClick.x) + Math.PI;
+        int quadrant = (int) (angle / (Math.PI / 2)) % 4;
+
+        return switch (quadrant) {
+            case 0 -> 5;
+            case 1 -> 4;
+            case 2 -> 2;
+            default -> 3;
+        };
     }
 }

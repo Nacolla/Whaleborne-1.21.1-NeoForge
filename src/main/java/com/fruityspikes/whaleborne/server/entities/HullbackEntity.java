@@ -1,119 +1,95 @@
 package com.fruityspikes.whaleborne.server.entities;
 
-import com.fruityspikes.whaleborne.Config;
 import com.fruityspikes.whaleborne.Whaleborne;
 import com.fruityspikes.whaleborne.client.menus.HullbackMenu;
 import com.fruityspikes.whaleborne.network.HullbackHurtPayload;
-import com.fruityspikes.whaleborne.network.SyncHullbackDirtPayload;
 import com.fruityspikes.whaleborne.server.data.HullbackDirtManager;
 import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackAIManager;
-import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackBodyRotationControl;
 import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackEquipmentManager;
 import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackInteractionManager;
 import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackPartManager;
 import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackDirt;
 import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackSeatManager;
 import com.fruityspikes.whaleborne.server.entities.components.hullback.HullbackControlManager;
-import com.fruityspikes.whaleborne.server.entities.goals.hullback.*;
 import com.fruityspikes.whaleborne.server.registries.*;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.api.distmarker.OnlyIn;
-import net.neoforged.fml.ModList;
-import net.neoforged.neoforge.network.PacketDistributor;
-import com.fruityspikes.whaleborne.network.ToggleControlPayload;
-import net.minecraft.world.entity.EquipmentSlot;
+
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.particles.BlockParticleOption;
+import net.minecraft.core.Holder;
 import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
-import net.minecraft.nbt.NbtUtils;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.Packet;
-import net.minecraft.network.protocol.game.ClientGamePacketListener;
-import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.network.protocol.game.ClientboundSetPassengersPacket;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
-import net.minecraft.server.level.ServerEntity;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
-import net.minecraft.tags.FluidTags;
-import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.*;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.attributes.*;
-import net.minecraft.world.entity.ai.behavior.BehaviorUtils;
 import net.minecraft.world.entity.ai.control.*;
-import net.minecraft.world.entity.ai.goal.*;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.ai.navigation.WaterBoundPathNavigation;
-import net.minecraft.world.entity.ai.targeting.TargetingConditions;
 import net.minecraft.world.entity.animal.WaterAnimal;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.*;
-import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.material.Fluids;
-import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.core.Holder;
 import net.minecraft.world.phys.shapes.Shapes;
+
 import net.neoforged.neoforge.common.NeoForgeMod;
-import net.neoforged.neoforge.common.ItemAbilities;
-import net.neoforged.neoforge.common.Tags;
 import net.neoforged.neoforge.fluids.FluidType;
 import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.ItemStackHandler;
 import net.neoforged.neoforge.items.wrapper.InvWrapper;
-
-import org.joml.Matrix2dc;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import javax.annotation.Nullable;
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 public class HullbackEntity extends AbstractWhale implements HasCustomInventoryScreen, PlayerRideableJumping, Saddleable {
-    
-    // CACHE para não verificar o ModList todo tick
-    private static Boolean IS_THIRD_PERSON_MOD_LOADED = null;
-    private static final ResourceLocation SAIL_SPEED_MODIFIER_ID = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "sail_speed_modifier");
-    private boolean validatedAfterLoad = false;
-    private float leftEyeYaw, rightEyeYaw, eyePitch;
-    private IItemHandler itemHandler;
-    private boolean immobile;
-    private boolean tamedCoolDown;
-    private Vec3 currentTarget;
-    public int stationaryTicks;
 
-    public static final int INV_SLOT_CROWN = 0;
-    public static final int INV_SLOT_SADDLE = 1;
-    public static final int INV_SLOT_ARMOR = 2;
-    public boolean HAS_MOBIUS_SPAWNED = false;
+    // ─── Constants ───────────────────────────────────────────────
+    private static final float HEALING_AMOUNT = 0.25f;
+    private static final int HEALING_INTERVAL_TICKS = 80;
+    private static final int SEAT_VALIDATION_INTERVAL_TICKS = 20;
+    private static final int ARMOR_SYNC_INTERVAL_TICKS = 40;
+    private static final int MOUTH_CLOSE_INTERVAL_TICKS = 80;
+    private static final float MOUTH_OPEN_SPEED = 0.8f;
+    private static final float SPEED_THRESHOLD_MOUTH_OPEN = 0.3f;
+    private static final float ARMOR_EJECT_THRESHOLD = 0.45f;
+    // DIRT_TICK_CHANCE / DIRT_TICK_DENOMINATOR removed — random gate now lives
+    // inside HullbackDirt.randomTick(), matching the original 1.20.1 structure.
+    private static final int POST_LOAD_VALIDATION_DELAY_TICKS = 5;
+    private static final int STATIONARY_TICKS_PLAYER_ABOVE = 5;
+    private static final int STATIONARY_TICKS_DISMOUNT = 100;
+    private static final int STATIONARY_TICKS_INITIAL = 60;
+    private static final int DIRT_INITIAL_SYNC_TICK = 10;
+    private static final int EARLY_TICK_THRESHOLD = 20;
+    private static final double SPEED_THRESHOLD_MOUTH_OPEN_SQR = SPEED_THRESHOLD_MOUTH_OPEN * SPEED_THRESHOLD_MOUTH_OPEN;
+    private static final double PARTICLE_SPEED_THRESHOLD_SQR = 0.03 * 0.03;
+    private static final int[] SIDES = {-1, 1};
+
+    // ─── Static fields ───────────────────────────────────────────
+    private static final ResourceLocation SAIL_SPEED_MODIFIER_ID = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "sail_speed_modifier");
+
+    // ─── Synched Entity Data ─────────────────────────────────────
     public static final EntityDataAccessor<ItemStack> DATA_CROWN_ID = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.ITEM_STACK);
     public static final EntityDataAccessor<ItemStack> DATA_ARMOR = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.ITEM_STACK);
-
     private static final EntityDataAccessor<Float> DATA_MOUTH_PROGRESS = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_0 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_1 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
@@ -122,25 +98,30 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_4 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_5 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_6 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
-    public static final EntityDataAccessor<Boolean> DATA_VECTOR_CONTROL = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.BOOLEAN);  
-    
+    public static final EntityDataAccessor<Boolean> DATA_VECTOR_CONTROL = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.BOOLEAN);
+    private static final EntityDataAccessor<Integer> DATA_STATIONARY_TICKS = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.INT);
+
+    // ─── Inventory Slots ────────────────────────────────────────
+    public static final int INV_SLOT_CROWN = 0;
+    public static final int INV_SLOT_SADDLE = 1;
+    public static final int INV_SLOT_ARMOR = 2;
+
+    // ─── Sub-Entity Parts ───────────────────────────────────────
     public final HullbackPartEntity head;
     public final HullbackPartEntity nose;
     public final HullbackPartEntity body;
     public final HullbackPartEntity tail;
     public final HullbackPartEntity fluke;
+    private final HullbackPartEntity[] subEntities;
 
+    // ─── Walkable Platforms ──────────────────────────────────────
     public HullbackWalkableEntity moving_head;
     public HullbackWalkableEntity moving_nose;
     public HullbackWalkableEntity moving_body;
-    private final HullbackPartEntity[] subEntities;
-    
+
+    // ─── Component Managers ──────────────────────────────────────
     public final HullbackPartManager partManager;
     public final HullbackDirt HullbackDirt;
-
-    public HullbackDirt getWhaleDirt() {
-        return this.HullbackDirt;
-    }
     public final HullbackSeatManager hullbackSeatManager;
     public final HullbackAIManager aiManager;
     public final HullbackEquipmentManager equipmentManager;
@@ -148,15 +129,34 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     public final HullbackControlManager controlManager;
     public final HullbackBodyRotationControl bodyControl;
 
+    // ─── State Fields ───────────────────────────────────────────
+    private boolean validatedAfterLoad = false;
+    private float leftEyeYaw, rightEyeYaw, eyePitch;
+    private IItemHandler itemHandler;
+    private Vec3 currentTarget;
+    public int stationaryTicks;
+    public boolean HAS_MOBIUS_SPAWNED = false;
+    public float AttributeSpeedModifier = 1;
     public float newRotY = this.getYRot();
     private float mouthOpenProgress;
     private float mouthTarget;
+    private boolean isBreaching;
+
+    public HullbackDirt getWhaleDirt() {
+        return this.HullbackDirt;
+    }
+
+    public void setBreaching(boolean breaching) {
+        this.isBreaching = breaching;
+    }
+
+    public boolean isBreaching() {
+        return this.isBreaching;
+    }
 
     public static ResourceLocation getSailSpeedModifierId() {
         return SAIL_SPEED_MODIFIER_ID;
     }
-
-    public float AttributeSpeedModifier = 1;
 
     public HullbackEntity(EntityType<? extends WaterAnimal> entityType, Level level) {
         super(entityType, level);
@@ -164,9 +164,9 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         this.inventory.addListener(this);
         this.itemHandler = new InvWrapper(this.inventory);
 
-        this.moveControl = new SmoothSwimmingMoveControl(this, 1, 2, 0.1F, 0.1F, true);
-        this.lookControl = new SmoothSwimmingLookControl(this, 1);
-        this.bodyControl = new HullbackBodyRotationControl(this);
+        this.moveControl = new StationaryAwareMoveControl(this, 1, 2, 0.1F, 0.1F, true);
+        this.lookControl = new StationaryAwareLookControl(this, 1);
+        this.bodyControl = (HullbackBodyRotationControl) createBodyControl();
 
 
         this.nose = new HullbackPartEntity(this, "nose", 5.0F, 5.0F);
@@ -180,7 +180,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         this.moving_body = null;
 
         this.subEntities = new HullbackPartEntity[]{this.nose, this.head, this.body, this.tail, this.fluke};
-        //this.moving_subEntities = new HullbackPartWalkableEntity[]{this.moving_nose, this.moving_head, this.moving_body, this.moving_tail, this.moving_fluke};
+
         this.setId(ENTITY_COUNTER.getAndAdd(this.subEntities.length + 1) + 1);
 
         this.partManager = new HullbackPartManager(this, this.subEntities);
@@ -202,15 +202,12 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         this.aiManager.registerGoals();
 
         this.mouthOpenProgress = 0.0f;
-        this.mouthOpenProgress = 0.0f;
         this.currentTarget = this.position();
         
         // Manual inventory update since the one in super() was skipped due to null manager
         this.updateContainerEquipment();
-        
-        this.currentTarget = this.position();
 
-        this.stationaryTicks = 60;
+        this.stationaryTicks = STATIONARY_TICKS_INITIAL;
     }
 
     @Override
@@ -235,14 +232,14 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     }
 
     private static boolean hasSpawnSpace(LevelAccessor level, BlockPos pos) {
-        // Área de verificação reduzida para permitir mais spawns
-        int checkRadius = 5;   // Reduzido de 10 para 5
-        int heightCheck = 4;   // Reduzido de 6 para 4
+        // Reduced check area to allow more spawns
+        int checkRadius = 5;   // Reduced from 10 to 5
+        int heightCheck = 4;   // Reduced from 6 to 4
 
         AABB spawnCheckArea = new AABB(pos).inflate(checkRadius, heightCheck, checkRadius);
 
         int solidCount = 0;
-        int maxSolidAllowed = 20;  // Permitir até 20 blocos sólidos (tolerância)
+        int maxSolidAllowed = 20;  // Allow up to 20 solid blocks (tolerance)
 
         BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
         for (int x = (int)spawnCheckArea.minX; x <= spawnCheckArea.maxX; x++) {
@@ -253,14 +250,14 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
                     if (state.isSolid() && state.getCollisionShape(level, mutablePos) != Shapes.empty()) {
                         solidCount++;
                         if (solidCount > maxSolidAllowed) {
-                            return false;  // Muito obstruído
+                            return false;  // Too obstructed
                         }
                     }
                 }
             }
         }
 
-        return true;  // Spawn permitido
+        return true;  // Spawn allowed
     }
 
     private static boolean hasNearbyHullbacks(LevelAccessor level, BlockPos pos) {
@@ -272,19 +269,13 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         ).isEmpty();
     }
 
-    @Override
-    public Packet<ClientGamePacketListener> getAddEntityPacket(ServerEntity entity) {
-        return super.getAddEntityPacket(entity);
-    }
-
-
-
-    // forceEquipmentSync removed (redundant with HullbackEquipmentManager)
-
-
-
     public static AttributeSupplier.Builder createAttributes() {
-        return Mob.createMobAttributes().add(Attributes.MAX_HEALTH, 100.0).add(Attributes.MOVEMENT_SPEED, 1.2000000476837158).add(Attributes.ATTACK_DAMAGE, 3.0).add(Attributes.KNOCKBACK_RESISTANCE, 1.0);
+        return Mob.createMobAttributes()
+            .add(Attributes.MAX_HEALTH, 100.0)
+            .add(Attributes.MOVEMENT_SPEED, 0.005)
+            .add(Attributes.ATTACK_DAMAGE, 3.0)
+            .add(Attributes.KNOCKBACK_RESISTANCE, 1.0)
+            .add(NeoForgeMod.SWIM_SPEED, 1.2);
     }
 
     protected int getInventorySize() {
@@ -306,9 +297,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     }
 
     @Override
-    public void onInsideBubbleColumn(boolean downwards) {
-
-    }
+    public void onInsideBubbleColumn(boolean downwards) { }
 
     public ItemStack getArmor() {
         return equipmentManager.getArmor();
@@ -340,33 +329,23 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         builder.define(DATA_ARMOR, ItemStack.EMPTY);
         builder.define(DATA_MOUTH_PROGRESS, 0f);
         builder.define(DATA_VECTOR_CONTROL, false);
+        builder.define(DATA_STATIONARY_TICKS, 0);
+    }
+
+    public int getStationaryTicks() {
+        return this.entityData.get(DATA_STATIONARY_TICKS);
     }
     public void addAdditionalSaveData(CompoundTag compound) {
         super.addAdditionalSaveData(compound);
         ListTag listtag = new ListTag();
-        
-        Whaleborne.LOGGER.info("HullbackEntity.addAdditionalSaveData saving for ID: {}", this.getId());
 
-        for(int i = 0; i < this.inventory.getContainerSize(); ++i) {
+        for (int i = 0; i < this.inventory.getContainerSize(); ++i) {
             ItemStack itemstack = this.inventory.getItem(i);
             if (!itemstack.isEmpty()) {
-                Whaleborne.LOGGER.info("Saving item at slot {}: {}", i, itemstack);
-                
-                try {
-                    // FIX: In 1.21+, itemstack.save returns a populated/new tag,
-                    // does not necessarily mutate the passed one as before/requires using result.
-                    // To ensure precision, we capture the return.
-                    Tag savedTag = itemstack.save(this.registryAccess());
-                    if (savedTag instanceof CompoundTag itemTag) {
-                        itemTag.putByte("Slot", (byte)i);
-                        listtag.add(itemTag);
-                        Whaleborne.LOGGER.info("Saved tag for slot {}: {}", i, itemTag);
-                    } else {
-                        Whaleborne.LOGGER.warn("Saved tag is not a CompoundTag: {}", savedTag);
-                    }
-                } catch (Exception e) {
-                    Whaleborne.LOGGER.error("Error saving item at slot {}: {}", i, e.getMessage());
-                    e.printStackTrace();
+                Tag savedTag = itemstack.save(this.registryAccess());
+                if (savedTag instanceof CompoundTag itemTag) {
+                    itemTag.putByte("Slot", (byte) i);
+                    listtag.add(itemTag);
                 }
             }
         }
@@ -376,13 +355,9 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         CompoundTag hasMobiusSpawned = new CompoundTag();
         hasMobiusSpawned.putBoolean("HasMobiusSpawned", HAS_MOBIUS_SPAWNED);
 
-        //System.out.println("Saving seat data:");
-
         for (int i = 0; i < 7; i++) {
             Optional<UUID> occupant = this.entityData.get(getSeatAccessor(i));
             String seatKey = "Seat_" + i;
-
-            //System.out.println("Seat " + i + ": " + occupant);
 
             if (occupant.isPresent()) {
                 compound.putUUID(seatKey, occupant.get());
@@ -392,30 +367,18 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     }
     public void readAdditionalSaveData(CompoundTag compound) {
         super.readAdditionalSaveData(compound);
-        
-        Whaleborne.LOGGER.info("HullbackEntity.readAdditionalSaveData called for ID: {}", this.getId());
-        
-        // Inventory initialized in AbstractWhale
-        
-        ListTag items = compound.getList("Items", 10);
-        Whaleborne.LOGGER.info("Loading {} items from NBT.", items.size());
 
-        for(int i = 0; i < items.size(); i++) {
+        ListTag items = compound.getList("Items", 10);
+        for (int i = 0; i < items.size(); i++) {
             CompoundTag itemTag = items.getCompound(i);
             int slot = itemTag.getByte("Slot") & 255;
-            Whaleborne.LOGGER.info("Item {} at slot {}: {}", i, slot, itemTag);
-            
             if (slot < this.inventory.getContainerSize()) {
                 ItemStack stack = ItemStack.parse(this.registryAccess(), itemTag).orElse(ItemStack.EMPTY);
-                Whaleborne.LOGGER.info("Parsed Stack: {} (Empty: {})", stack, stack.isEmpty());
                 this.inventory.setItem(slot, stack);
             }
         }
 
         HAS_MOBIUS_SPAWNED = compound.getBoolean("HasMobiusSpawned");
-
-        boolean hasAnySeatData = IntStream.range(0, 7)
-                .anyMatch(i -> compound.hasUUID("Seat_" + i));
 
         for (int i = 0; i < 7; i++) {
             String seatKey = "Seat_" + i;
@@ -435,42 +398,16 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         return hullbackSeatManager.getSeatAccessor(seatIndex);
     }
 
-    private CompoundTag saveDirtArray(BlockState[][] array) {
-        CompoundTag tag = new CompoundTag();
-        for (int x = 0; x < array.length; x++) {
-            ListTag column = new ListTag();
-            for (int y = 0; y < array[x].length; y++) {
-                column.add(NbtUtils.writeBlockState(array[x][y]));
-            }
-            tag.put("x" + x, column);
-        }
-        return tag;
-    }
-
-    private BlockState[][] loadDirtArray(CompoundTag tag) {
-        BlockState[][] array = new BlockState[tag.size()][];
-        for (int x = 0; x < array.length; x++) {
-            String key = "x" + x;
-            if (tag.contains(key)) {
-                ListTag column = tag.getList(key, 10);
-                array[x] = new BlockState[column.size()];
-                for (int y = 0; y < column.size(); y++) {
-                    array[x][y] = NbtUtils.readBlockState(level().holderLookup(Registries.BLOCK), column.getCompound(y));
-                }
-            }
-        }
-        return array;
-    }
-
     public float getArmorProgress() {
         return (float) this.entityData.get(DATA_ARMOR).getCount() / 64f;
     }
     public float getLeftEyeYaw() { return leftEyeYaw; }
     public float getRightEyeYaw() { return rightEyeYaw; }
     public float getEyePitch() { return eyePitch; }
-    // canBreatheUnderwater is final in LivingEntity (WaterAnimal returns true by default)
-    protected void handleAirSupply(int airSupply) {
-    }
+    // Override to suppress default air supply tick — prevents the entity from
+    // trying to surface for air, which would fight the custom buoyancy in travel().
+    protected void handleAirSupply(int airSupply) { }
+
     public int getMaxAirSupply() {
         return 10000;
     }
@@ -481,11 +418,10 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     public boolean isPushable() {
         return false;
     }
-    public void setId(int p_20235_) {
-        super.setId(p_20235_);
-
-        for(int i = 0; i < this.subEntities.length; i++) {
-            this.subEntities[i].setId(p_20235_ + i + 1);
+    public void setId(int id) {
+        super.setId(id);
+        for (int i = 0; i < this.subEntities.length; i++) {
+            this.subEntities[i].setId(id + i + 1);
         }
     }
     public HullbackPartEntity[] getSubEntities() {
@@ -513,25 +449,6 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         return this.subEntities;
     }
 
-    public void recreateFromPacket(ClientboundAddEntityPacket packet) {
-        super.recreateFromPacket(packet);
-    }
-
-    //    private void updateWalkerPositions() {
-//        for ( HullbackPartEntity part : getSubEntities()) {
-//            AABB boundingBox = part.getBoundingBoxForCulling().move(0, 0.5f, 0);
-//
-//            List<Entity> riders = level().getEntities(part, boundingBox);
-//            riders.removeIf(rider -> rider.isPassenger());
-//
-//            for (Entity entity : riders) {
-//                if (entity instanceof HullbackEntity || entity instanceof HullbackPartEntity)
-//                    return;
-//                Vec3 offset = new Vec3
-//            }
-//        }
-//    }
-
     private boolean scanPlayerAbove() {
         for (HullbackPartEntity part : getSubEntities()) {
             AABB box = part.getBoundingBox();
@@ -551,11 +468,6 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
             );
 
             if (!entities.isEmpty()) {
-                //playSound(SoundEvents.AMETHYST_BLOCK_CHIME);
-                //for (Entity entity : entities) {
-                //    entity.hurtMarked = true;
-                //    entity.push(0,0.05f,0);
-                //}
                 return true;
             }
         }
@@ -574,7 +486,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         mouthTarget = 0.2f;
 
 
-        for (int side : new int[]{-1, 1}) {
+        for (int side : SIDES) {
             Vec3 particlePos = partManager.partPosition[1].add(new Vec3(3.5*side, 2, 0).yRot(-partManager.partYRot[1]));
             double x = particlePos.x;
             double y = particlePos.y;
@@ -678,20 +590,9 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
     @Override
     protected void tickDeath() {
-        if (this.moving_nose != null) {
-            this.moving_nose.discard();
-            this.moving_nose = null;
-        }
-        if (this.moving_head != null) {
-            this.moving_head.discard();
-            this.moving_head = null;
-        }
-        if (this.moving_body != null) {
-            this.moving_body.discard();
-            this.moving_body = null;
-        }
+        discardAllPlatforms();
         List<HullbackWalkableEntity> list = level().getEntitiesOfClass(HullbackWalkableEntity.class, this.getBoundingBox().inflate(6));
-        if (!list.isEmpty()) for (HullbackWalkableEntity entity : list) entity.discard();
+        for (HullbackWalkableEntity entity : list) entity.discard();
 
         super.tickDeath();
     }
@@ -752,56 +653,142 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
     @Override
     public void tick() {
+        if (!this.level().isClientSide && this.tickCount == 20) {
+            this.getWhaleDirt().syncDirtToClients();
+        }
+
+        // 1. Capture rotation snapshot BEFORE AI and movement processing
+        RotationSnapshot snapshot = captureRotationSnapshot();
+
+        // 2. Handle core stationary logic and base entity tick
+        handleStationaryState();
         super.tick();
 
+        // 3. Re-enforce the stationary orientation if applicable (Hard Lock)
+        applyHardLock(snapshot);
 
-        
+        // 4. Handle client-side control prediction and state
         if (this.level().isClientSide) {
-             controlManager.clientHandleControlState();
+            controlManager.clientHandleControlState();
         }
-        
-        // NEW: Single validation after loading from NBT
-        if (!this.level().isClientSide && !validatedAfterLoad && this.tickCount > 5) {
+
+        // 5. Manage equipment validation, synchronization and client restoration
+        manageEquipmentAndSync();
+
+        // 6. Update multipart positions, passenger rotation and seat points
+        manageMultipartPhysics();
+
+        // 7. Handle various passive behaviors and entity logic
+        managePassiveBehaviors();
+    }
+
+    /** Helper record to store rotation data for the Hard Lock. */
+    private record RotationSnapshot(float yaw, float bodyYaw, float headYaw) {}
+
+    private RotationSnapshot captureRotationSnapshot() {
+        return new RotationSnapshot(this.getYRot(), this.yBodyRot, this.yHeadRot);
+    }
+
+    private void applyHardLock(RotationSnapshot snapshot) {
+        if (this.getStationaryTicks() > 0) {
+            this.setYRot(snapshot.yaw());
+            this.setYBodyRot(snapshot.bodyYaw());
+            this.setYHeadRot(snapshot.headYaw());
+            this.yRotO = snapshot.yaw();
+        }
+    }
+
+    private void manageEquipmentAndSync() {
+        validateEquipmentAfterLoad();
+        syncArmorPeriodically();
+        restoreClientEquipment();
+
+        if (this.tickCount % SEAT_VALIDATION_INTERVAL_TICKS == 0) {
+            validateAssignments();
+        }
+
+        if (this.tickCount == DIRT_INITIAL_SYNC_TICK) {
+            HullbackDirt.syncDirtToClients();
+        }
+    }
+
+    private void manageMultipartPhysics() {
+        // Update physical part positions
+        partManager.setOldPosAndRots();
+        partManager.updatePartPositions();
+
+        // Align passengers with their respective platforms/seats
+        hullbackSeatManager.rotatePassengers();
+
+        // Handle head rotation offset when not controlled by AI
+        if (this.getStationaryTicks() <= 0) {
+            this.yHeadRot = this.yBodyRot + (partManager.partYRot[0] - partManager.partYRot[4]) * 1.5f;
+        }
+
+        // Refresh seat coordinates for riding entities
+        if (this.isTamed() && partManager.partPosition != null && partManager.partYRot != null && partManager.partXRot != null) {
+            partManager.calculateSeats();
+        }
+    }
+
+    private void managePassiveBehaviors() {
+        handlePassengerEjection();
+        handleHealing();
+        handleMouthAnimation();
+        handleDirtTicks();
+        updateModifiers();
+        tickSubEntitiesAndParticles();
+    }
+
+
+    /** One-time validation after loading from NBT to re-sync equipment with clients. */
+    private void validateEquipmentAfterLoad() {
+        if (!this.level().isClientSide && !validatedAfterLoad && this.tickCount > POST_LOAD_VALIDATION_DELAY_TICKS) {
             validatedAfterLoad = true;
-            
-            // Revalidate and sync equipment
+
             ItemStack armor = this.inventory.getItem(INV_SLOT_ARMOR);
             ItemStack crown = this.inventory.getItem(INV_SLOT_CROWN);
             ItemStack saddle = this.inventory.getItem(INV_SLOT_SADDLE);
-            
+
             this.entityData.set(DATA_ARMOR, armor.copy());
             this.entityData.set(DATA_CROWN_ID, crown.copy());
             this.setFlag(4, !saddle.isEmpty());
-            
-            // Sync to all clients
+
             sendHurtSyncPacket();
             HullbackDirt.syncDirtToClients();
         }
+    }
 
-        if(tickCount % 40 == 0) {
-            this.entityData.set(DATA_ARMOR, this.inventory.getItem(INV_SLOT_ARMOR));
+    /** Periodically syncs armor data to ensure client-server consistency. */
+    private void syncArmorPeriodically() {
+        if (tickCount % ARMOR_SYNC_INTERVAL_TICKS == 0) {
+            ItemStack current = this.inventory.getItem(INV_SLOT_ARMOR);
+            if (!ItemStack.matches(this.entityData.get(DATA_ARMOR), current)) {
+                this.entityData.set(DATA_ARMOR, current);
+            }
         }
+    }
 
-        // NEW: On client, restore from entityData if necessary
+    /** On client side, restores inventory from synched entity data if the local inventory is empty. */
+    private void restoreClientEquipment() {
         if (this.level().isClientSide) {
             ItemStack armorInInventory = this.inventory.getItem(INV_SLOT_ARMOR);
             ItemStack armorInData = this.entityData.get(DATA_ARMOR);
-            
+
             if (armorInInventory.isEmpty() && !armorInData.isEmpty()) {
                 this.inventory.setItem(INV_SLOT_ARMOR, armorInData.copy());
             }
-            
+
             ItemStack crownInInventory = this.inventory.getItem(INV_SLOT_CROWN);
             ItemStack crownInData = this.entityData.get(DATA_CROWN_ID);
-            
+
             if (crownInInventory.isEmpty() && !crownInData.isEmpty()) {
                 this.inventory.setItem(INV_SLOT_CROWN, crownInData.copy());
             }
-            
-            // Check saddle
+
             boolean hasSaddleFlag = this.getFlag(4);
             ItemStack saddleInInventory = this.inventory.getItem(INV_SLOT_SADDLE);
-            
+
             if (hasSaddleFlag && saddleInInventory.isEmpty()) {
                 this.inventory.setItem(INV_SLOT_SADDLE, new ItemStack(Items.SADDLE));
             }
@@ -810,154 +797,112 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         if (this.level().isClientSide && getArmorProgress() > 0 && this.inventory.getItem(INV_SLOT_ARMOR).getItem().asItem() == Items.AIR.asItem()) {
             this.inventory.setItem(INV_SLOT_ARMOR, getArmor());
         }
+    }
 
-        // MOVED TO BEFORE: Update part positions BEFORE any validation
-      
-        partManager.setOldPosAndRots();
-        partManager.updatePartPositions();
-
-        if (stationaryTicks>0){
+    /** Manages walkable platform spawning/removal and player-above detection. */
+    private void handleStationaryState() {
+        if (stationaryTicks > 0) {
             stopMoving();
             stationaryTicks--;
         }
 
-        if (scanPlayerAbove())
-            stationaryTicks=5;
-
-        if (stationaryTicks==0) {
-            if (this.moving_nose != null) {
-                this.moving_nose.discard();
-                this.moving_nose = null;
-            }
-            if (this.moving_head != null) {
-                this.moving_head.discard();
-                this.moving_head = null;
-            }
-            if (this.moving_body != null) {
-                this.moving_body.discard();
-                this.moving_body = null;
-            }
+        if (scanPlayerAbove()) {
+            stationaryTicks = STATIONARY_TICKS_PLAYER_ABOVE;
         }
 
-        if(!this.isEyeInFluidType(Fluids.WATER.getFluidType()))
+        if (!this.level().isClientSide) {
+            this.entityData.set(DATA_STATIONARY_TICKS, stationaryTicks);
+        }
+
+        if (stationaryTicks == 0) {
+            discardAllPlatforms();
+        }
+    }
+
+    /** Ejects passengers when unsaddled or when armor is too damaged. */
+    private void handlePassengerEjection() {
+        if (!isSaddled() && !level().isClientSide && tickCount > EARLY_TICK_THRESHOLD) {
+            if (!getPassengers().isEmpty()) {
+                if (!getInventory().getItem(INV_SLOT_CROWN).isEmpty()) {
+                    spawnAtLocation(getInventory().getItem(INV_SLOT_CROWN));
+                    getInventory().setItem(INV_SLOT_CROWN, ItemStack.EMPTY);
+                }
+                ejectPassengers();
+            }
+        } else if (tickCount > EARLY_TICK_THRESHOLD) {
+            if (getArmorProgress() < ARMOR_EJECT_THRESHOLD && getInventory().getItem(INV_SLOT_ARMOR).getCount() < 64 && !level().isClientSide) {
+                if (!getInventory().getItem(INV_SLOT_CROWN).isEmpty()) {
+                    spawnAtLocation(getInventory().getItem(INV_SLOT_CROWN));
+                    getInventory().setItem(INV_SLOT_CROWN, ItemStack.EMPTY);
+                }
+                ejectPassengers();
+            }
+        }
+    }
+
+    /** Passive healing when the head is submerged in water. */
+    private void handleHealing() {
+        if (this.getSubEntities()[1].isEyeInFluidType(Fluids.WATER.getFluidType()) && this.tickCount % HEALING_INTERVAL_TICKS == 0) {
+            this.heal(HEALING_AMOUNT);
+        }
+    }
+
+    /** Controls mouth open/close animation based on water state and movement speed. */
+    private void handleMouthAnimation() {
+        if (!this.isEyeInFluidType(Fluids.WATER.getFluidType())) {
             mouthTarget = 1;
-
-        if(!isSaddled() && !level().isClientSide && tickCount > 20){
-            if(!getPassengers().isEmpty()) {
-                if (!getInventory().getItem(INV_SLOT_CROWN).isEmpty()) {
-                    spawnAtLocation(getInventory().getItem(INV_SLOT_CROWN));
-                    getInventory().setItem(INV_SLOT_CROWN, ItemStack.EMPTY);
-                }
-                ejectPassengers();
-            }
-        }
-        else if (tickCount > 20){
-            if(getArmorProgress() < 0.45f && getInventory().getItem(INV_SLOT_ARMOR).getCount() < 64 && !level().isClientSide) {
-                if (!getInventory().getItem(INV_SLOT_CROWN).isEmpty()) {
-                    spawnAtLocation(getInventory().getItem(INV_SLOT_CROWN));
-                    getInventory().setItem(INV_SLOT_CROWN, ItemStack.EMPTY);
-                }
-                ejectPassengers();
-            }
         }
 
-        // MOVED: rotatePassengers now comes AFTER updatePartPositions
-        hullbackSeatManager.rotatePassengers();
-
-        if(this.getSubEntities()[1].isEyeInFluidType(Fluids.WATER.getFluidType()) && this.tickCount % 80 == 0)
-            this.heal(0.25f);
-
-        if (this.getDeltaMovement().length() > 0.3) {
-            mouthTarget = 0.8f;
+        if (this.getDeltaMovement().lengthSqr() > SPEED_THRESHOLD_MOUTH_OPEN_SQR) {
+            mouthTarget = MOUTH_OPEN_SPEED;
         }
 
         updateMouthOpening();
-        
 
-
-        LivingEntity controller = getControllingPassenger();
-        
-        if (controller instanceof Player player) {
-             // Let getRiddenInput handle movement. Just ensure basic things here if needed.
-        }
-
-
-
-        if (this.tickCount % 80 == 0)
+        if (this.tickCount % MOUTH_CLOSE_INTERVAL_TICKS == 0) {
             mouthTarget = 0;
-
-        // Anchor Physics (Smooth Proportional Control)
-        if (hasAnchorDown() && this.isInWater()) {
-             double targetY = this.level().getSeaLevel() - 5.0;
-             double currentY = this.getY();
-             double diff = targetY - currentY;
-             
-             // Proportional Control: Speed based on distance
-             // Gain 0.05: Smooth response
-             // Clamp -0.05 to 0.05: Limit speed to prevent abrupt movements
-             double smoothSpeed = Mth.clamp(diff * 0.05, -0.05, 0.05);
-             
-             this.setDeltaMovement(this.getDeltaMovement().x, smoothSpeed, this.getDeltaMovement().z);
         }
+    }
 
-        // Validate assignments after seat calculation
-        if (this.tickCount % 20 == 0)
-            validateAssignments();
-
-        if (tickCount == 10)
-            HullbackDirt.syncDirtToClients();
-
-        yHeadRot = yBodyRot + (partManager.partYRot[0] - partManager.partYRot[4]) * 1.5f;
-
-        // Use calculateSeats method
-        // Calculate seats only if tamed
-        if (isTamed() && partManager.partPosition != null && partManager.partYRot != null && partManager.partXRot != null) {
-            partManager.calculateSeats();
-        }
-
+    /** Randomly grows dirt on the whale's body; clears top dirt when tamed.
+     *  Matches the original 1.20.1 structure: no outer random gate here —
+     *  each randomTick call has its own independent random check inside. */
+    private void handleDirtTicks() {
         if (!level().isClientSide) {
-            // Bottom dirt always ticks
-            if (this.random.nextInt(30000) <= 5) {
-                this.HullbackDirt.randomTick(this.head.name, true);
-                this.HullbackDirt.randomTick(this.body.name, true);
-                this.HullbackDirt.randomTick(this.tail.name, true);
-                this.HullbackDirt.randomTick(this.fluke.name, true);
-                this.HullbackDirt.randomTick(this.nose.name, true);
-            }
+            // Bottom dirt always ticks (each call rolls independently inside randomTick)
+            this.HullbackDirt.randomTick(this.head.name, true);
+            this.HullbackDirt.randomTick(this.body.name, true);
+            this.HullbackDirt.randomTick(this.tail.name, true);
+            this.HullbackDirt.randomTick(this.fluke.name, true);
 
             // Top dirt ticks only if NOT tamed
             if (!isTamed()) {
-                if (this.random.nextInt(30000) <= 5) {
-                    this.HullbackDirt.randomTick(this.head.name, false);
-                    this.HullbackDirt.randomTick(this.body.name, false);
-                }
+                this.HullbackDirt.randomTick(this.head.name, false);
+                this.HullbackDirt.randomTick(this.body.name, false);
             } else {
-                // Determine if we should clear top dirt (e.g. if blocks exist)
-                // Using a simpler check or just clearing periodically/always as per original logic structure
-                // Original: loops and clears. We can call clearTopDirt.
-                // However, doing it every tick might differ from "else" block of a random check?
-                // Original: if (!isTamed) { randomTick } else { clearLoops }
-                // So if tamed, it clears EVERY tick.
                 HullbackDirt.clearTopDirt();
             }
         }
-        updateModifiers();
+    }
 
-        for (int i=0; i < subEntities.length; i++) {
+    /** Ticks all sub-entities and spawns wake particles on body/fluke when swimming. */
+    private void tickSubEntitiesAndParticles() {
+        for (int i = 0; i < subEntities.length; i++) {
             subEntities[i].tick();
 
-            if(i == 2 || i == 4) {
+            if (i == 2 || i == 4) {
                 float offset = 0;
-                if (this.level().isClientSide && this.isInWater() && this.getDeltaMovement().length() > 0.03) {
-                    for (int side : new int[]{-1, 1}) {
-                        if(i == 2)
+                if (this.level().isClientSide && this.isInWater() && this.getDeltaMovement().lengthSqr() > PARTICLE_SPEED_THRESHOLD_SQR) {
+                    for (int side : SIDES) {
+                        if (i == 2) {
                             offset = 4;
-                        Vec3 particlePos = partManager.partPosition[i].add(new Vec3((offset + subEntities[i].getBbWidth() / 2)*side, 0, subEntities[i].getBbWidth() / 2).yRot(partManager.partYRot[i]));
+                        }
+                        Vec3 particlePos = partManager.partPosition[i].add(new Vec3((offset + subEntities[i].getBbWidth() / 2) * side, 0, subEntities[i].getBbWidth() / 2).yRot(partManager.partYRot[i]));
                         double x = particlePos.x;
                         double y = particlePos.y;
                         double z = particlePos.z;
 
-                        for(int j = 0; j < 4; ++j) {
+                        for (int j = 0; j < 4; ++j) {
                             this.level().addParticle(ParticleTypes.BUBBLE, x, y, z, 0.0, 0.1, 0.0);
                             this.level().addParticle(ParticleTypes.BUBBLE, x, y, z, 0.0, 0.1, 0.0);
                         }
@@ -966,8 +911,6 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
             }
         }
     }
-    
-
 
     public boolean hasAnchorDown() {
         for (Entity passenger : getPassengers()) {
@@ -981,58 +924,27 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
 
 
-    public void stopMoving(){
-        this.getNavigation().stop();
-
-        if (this.moving_nose == null) {
-            this.moving_nose = partManager.spawnPlatform(0);
-        } else {
-            if (this.tickCount % 5 == 0) {}
-                //this.moving_nose.moveTo(this.nose.getX(), this.getY() + 4.7, this.nose.getZ());
-        }
-        
-        if (this.moving_head == null) {
-            this.moving_head = partManager.spawnPlatform(1);
-        } else {
-            if (this.tickCount % 5 == 0) {}
-                //this.moving_head.moveTo(this.head.getX(), this.getY() + 4.7, this.head.getZ());
-        }
-        
-        if (this.moving_body == null) {
-            this.moving_body = partManager.spawnPlatform(2);
-        } else {
-            if (this.tickCount % 5 == 0) {}
-                //this.moving_body.moveTo(this.body.getX(), this.getY() + 4.7, this.body.getZ());
-        }
-
-        if (hasAnchorDown()) {
-            this.setPos(this.xo, this.getY(), this.zo);
-            this.setDeltaMovement(0, this.getDeltaMovement().y, 0);
-        } else {
-            this.setPos(this.xo, this.yo, this.zo);
-        }
-        this.setYRot(yRotO);
-        this.setXRot(xRotO);
+    /** Discards all walkable platform entities and nullifies references. */
+    private void discardAllPlatforms() {
+        if (this.moving_nose != null) { this.moving_nose.discard(); this.moving_nose = null; }
+        if (this.moving_head != null) { this.moving_head.discard(); this.moving_head = null; }
+        if (this.moving_body != null) { this.moving_body.discard(); this.moving_body = null; }
     }
 
+    public void stopMoving() {
+        this.getNavigation().stop();
 
+        if (this.moving_nose == null) this.moving_nose = partManager.spawnPlatform(0);
+        if (this.moving_head == null) this.moving_head = partManager.spawnPlatform(1);
+        if (this.moving_body == null) this.moving_body = partManager.spawnPlatform(2);
 
-//    private void updateWalkerPositions() {
-//        for ( HullbackPartEntity part : getSubEntities()) {
-//            AABB boundingBox = part.getBoundingBoxForCulling().move(0, 0.5f, 0);
-//
-//            List<Entity> riders = level().getEntities(part, boundingBox);
-//            riders.removeIf(rider -> rider.isPassenger());
-//
-//            for (Entity entity : riders) {
-//                if (entity instanceof HullbackEntity || entity instanceof HullbackPartEntity)
-//                    return;
-//                Vec3 offset = new Vec3
-//            }
-//        }
-//    }
-
-
+        // Preserve vertical only when anchored (buoyancy active); otherwise full stop
+        if (hasAnchorDown()) {
+            this.setDeltaMovement(0, this.getDeltaMovement().y, 0);
+        } else {
+            this.setDeltaMovement(Vec3.ZERO);
+        }
+    }
 
     private void updateMouthOpening() {
         mouthOpenProgress = (float) Mth.lerp(0.3, mouthOpenProgress, mouthTarget);
@@ -1065,31 +977,68 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         return partManager.oldPartXRot[i];
     }
 
-
-
+    @Override
     protected BodyRotationControl createBodyControl() {
         return new HullbackBodyRotationControl(this);
     }
 
-    @Override
-    public void onPlayerJump(int i) {
+    protected class HullbackBodyRotationControl extends BodyRotationControl {
+        public HullbackBodyRotationControl(HullbackEntity hullback) {
+            super(hullback);
+        }
 
+        @Override
+        public void clientTick() {
+            if (HullbackEntity.this.getStationaryTicks() > 0) {
+                return;
+            }
+            HullbackEntity.this.setYBodyRot(HullbackEntity.this.getYRot());
+        }
     }
 
-    @Override
-    public boolean canJump() {
-        return true;
+    /** Prevents SmoothSwimmingMoveControl from rotating the entity when stationary. */
+    protected class StationaryAwareMoveControl extends SmoothSwimmingMoveControl {
+        public StationaryAwareMoveControl(HullbackEntity entity, int maxTurnX, int maxTurnY, float inWaterSpeedModifier, float outsideWaterSpeedModifier, boolean applyGravity) {
+            super(entity, maxTurnX, maxTurnY, inWaterSpeedModifier, outsideWaterSpeedModifier, applyGravity);
+        }
+
+        @Override
+        public void tick() {
+            if (HullbackEntity.this.getStationaryTicks() > 0) {
+                this.operation = Operation.WAIT;
+                return;
+            }
+            super.tick();
+        }
     }
 
-    @Override
-    public void handleStartJump(int i) {
+    /** Prevents SmoothSwimmingLookControl from rotating the entity when stationary. */
+    protected class StationaryAwareLookControl extends SmoothSwimmingLookControl {
+        public StationaryAwareLookControl(HullbackEntity entity, int maxTurnDegrees) {
+            super(entity, maxTurnDegrees);
+        }
 
+        @Override
+        public void tick() {
+            if (HullbackEntity.this.getStationaryTicks() > 0) {
+                return;
+            }
+            super.tick();
+        }
     }
 
-    @Override
-    public void handleStopJump() {
 
-    }
+    @Override
+    public void onPlayerJump(int i) { }
+
+    @Override
+    public boolean canJump() { return true; }
+
+    @Override
+    public void handleStartJump(int i) { }
+
+    @Override
+    public void handleStopJump() { }
 
     // PASSENGERS
     @Override
@@ -1182,33 +1131,16 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     @Override
     protected void addPassenger(Entity passenger) {
         super.addPassenger(passenger);
-        //if (!this.level().isClientSide) {
-        //    // Update seat assignment
-        //    int seat = findFreeSeat();
-        //    if (seat != -1) {
-        //        assignSeat(seat, passenger);
-        //    }
-            // Sync immediately
-            if (this.level() instanceof ServerLevel) {
-                 ((ServerLevel) this.level()).getChunkSource().broadcast(this, new ClientboundSetPassengersPacket(this));
-            }
+        // Sync immediately
+        if (this.level() instanceof ServerLevel) {
+             ((ServerLevel) this.level()).getChunkSource().broadcast(this, new ClientboundSetPassengersPacket(this));
         }
-//        if (!seatAssignments.containsValue(passenger.getUUID())) {
-//
-//            int availableSeat = IntStream.range(0, seats.length)
-//                    .filter(i -> !seatAssignments.containsKey(i))
-//                    .findFirst()
-//                    .orElse(0);
-//
-//            seatAssignments.put(availableSeat, passenger.getUUID());
-//            syncSeatAssignments();
-//        }
-//  }
+    }
 
     @Override
     protected void removePassenger(Entity passenger) {
         if(passenger instanceof Player)
-            stationaryTicks = 100;
+            stationaryTicks = STATIONARY_TICKS_DISMOUNT;
         if(passenger.isRemoved())
             for (int i = 0; i < 7; i++) {
                 Optional<UUID> occupant = this.entityData.get(getSeatAccessor(i));
@@ -1271,10 +1203,98 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
             ((ServerLevel) this.level()).getChunkSource().broadcast(this, new ClientboundSetEntityMotionPacket(this.getId(), this.getDeltaMovement()));
         }
     }
+    
+    @Override
+    public void travel(Vec3 travelVector) {
+        // Stop horizontal movement if anchor is down or stationary
+        if ((this.hasAnchorDown() || (this.getStationaryTicks() > 0)) && this.isHullbackInWater()) {
+            travelVector = new Vec3(0, 0, 0);
+        }
+
+        // AGGRESSIVE LAND SPEED REDUCTION: Scale input vector before vanilla physics
+        if (!this.isHullbackInWater()) {
+            travelVector = travelVector.multiply(0.1, 1.0, 0.1);
+        }
+
+        // Logic: Target specific depth (-5.0 from sea level)
+        // This must run even when RIDDEN and regardless of EffectiveAI to maintain buoyancy.
+        boolean isBreachingAction = this.isBreaching; // Assume this flag is managed elsewhere
+        
+        // Robust submerged checks
+        boolean noseSubmerged = this.getPartManager() != null && 
+                               this.getPartManager().subEntities != null && 
+                               this.getPartManager().subEntities.length > 0 && 
+                               this.getPartManager().subEntities[0].isEyeInFluidType(Fluids.WATER.getFluidType());
+        boolean bodySubmerged = this.getFluidTypeHeight(Fluids.WATER.getFluidType()) > 0.1;
+        boolean inWater = this.isInWater() || bodySubmerged; // logic: if nose is NOT submerged, we might be "walking on water" but only if we are actually in water. If on land, isInWater is false.
+
+        if (inWater && !isBreachingAction) {
+            boolean isAtHelm = this.getControllingPassenger() != null && this.getControllingPassenger().getVehicle() instanceof HelmEntity;
+
+            if (isAtHelm) {
+                // SAILING AT HELM: Maintain target depth -4.7 for perfect deck alignment
+                double targetY = this.level().getSeaLevel() - 4.7;
+                double currentY = this.getY();
+                double diff = targetY - currentY;
+                
+                if (Math.abs(diff) < 0.1) {
+                    this.setDeltaMovement(this.getDeltaMovement().x, 0, this.getDeltaMovement().z);
+                } else {
+                    double verticalForce = Mth.clamp(diff * 0.05, -0.05, 0.05);
+                    this.setDeltaMovement(this.getDeltaMovement().add(0, verticalForce, 0));
+                }
+            } else if (this.isTamed() || this.hasAnchorDown()) {
+                // TAMED OR ANCHORED: Maintain stable -5.0 depth (boarding ease + stability)
+                double targetY = this.level().getSeaLevel() - 5.0;
+                double currentY = this.getY();
+                double diff = targetY - currentY;
+                
+                if (Math.abs(diff) < 0.1) {
+                    this.setDeltaMovement(this.getDeltaMovement().x, 0, this.getDeltaMovement().z);
+                } else {
+                    double verticalForce = Mth.clamp(diff * 0.05, -0.05, 0.05);
+                    this.setDeltaMovement(this.getDeltaMovement().add(0, verticalForce, 0));
+                }
+            } else {
+                // WILD / NOT TAMED: Only push down if surfacing (nose out of water).
+                // We don't check isInWater() here because if nose is out, we might be technically "out" but we need to push down.
+                if (!noseSubmerged) {
+                    this.setDeltaMovement(this.getDeltaMovement().add(0, -0.05, 0));
+                }
+            }
+        }
+        super.travel(travelVector);
+
+        // EXTRA FRICTION ON LAND (Compensate for vanilla travel logic)
+        // Only apply friction if on ground to allow air momentum (jumps/lunges)
+        if (!this.isHullbackInWater() && this.onGround()) {
+            BlockState surface = this.getBlockStateOn();
+            double friction = 0.3; // Standard land: Very heavy
+            
+            // SPECIAL: If on ice, apply even more friction to remove the "slide"
+            if (surface.is(net.minecraft.world.level.block.Blocks.ICE) || 
+                surface.is(net.minecraft.world.level.block.Blocks.PACKED_ICE) || 
+                surface.is(net.minecraft.world.level.block.Blocks.BLUE_ICE)) {
+                friction = 0.05; // Ice: Extremely locked down
+            }
+
+            this.setDeltaMovement(this.getDeltaMovement().multiply(friction, 1.0, friction));
+        }
+
+        // Final anchor lock to be sure (prevents drift from super.travel)
+        if (this.hasAnchorDown() && this.isInWater()) {
+            this.setDeltaMovement(0, this.getDeltaMovement().y, 0);
+        }
+    }
+
+    public boolean isHullbackInWater() {
+        // Require significant depth (0.8m) to count as "swimming", avoids beach speed spikes
+        return this.getFluidTypeHeight(Fluids.WATER.getFluidType()) > 0.8;
+    }
 
     @Override
     protected float getRiddenSpeed(Player player) {
-        return (float) this.getAttributeValue(Attributes.MOVEMENT_SPEED);
+        return (float) (this.isHullbackInWater() ? this.getAttributeValue(NeoForgeMod.SWIM_SPEED) : this.getAttributeValue(Attributes.MOVEMENT_SPEED));
     }
 
     @Override

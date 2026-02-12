@@ -19,6 +19,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +35,8 @@ public class HullbackDirt {
     public BlockState[][] flukeDirt; // 4 x 4
 
     private final RandomSource random;
+    private boolean topDirtCleared = false;
+    private final Map<String, List<HullbackDirtManager.HullbackDirtEntry>> candidateCache = new HashMap<>();
 
     public HullbackDirt(HullbackEntity whale) {
         this.whale = whale;
@@ -107,9 +110,10 @@ public class HullbackDirt {
 
     private List<HullbackDirtManager.HullbackDirtEntry> getCandidates(boolean bottom, String partName) {
         String key = partName + "_" + (bottom ? "bottom" : "top");
-        return Whaleborne.PROXY.getHullbackDirtManager().get().stream()
-                .filter(e -> e.placements().contains(key))
-                .toList();
+        return candidateCache.computeIfAbsent(key, k ->
+            Whaleborne.PROXY.getHullbackDirtManager().get().stream()
+                .filter(e -> e.placements().contains(k))
+                .toList());
     }
 
     public static BlockState applyProperties(Block block, @Nullable Map<String, String> props) {
@@ -137,92 +141,70 @@ public class HullbackDirt {
     }
 
 
+    /**
+     * Attempts to grow or place dirt on the whale. Called every tick per-part from handleDirtTicks.
+     * Each call independently rolls its own random gate (6/30000 chance).
+     */
     public void randomTick(String partName, boolean bottom) {
         if (whale.level().isClientSide) return;
-        
+        if (random.nextInt(30000) > 5) return;
+
         BlockState[][] array = getDirtArray(getArrayIndex(partName, bottom), bottom);
-        if (array == null) return; // specific part doesn't support dirt or invalid name?
+        if (array == null) return;
 
-        if (bottom) {
-             if (random.nextInt(30000) <= 5) {
-                int x = getWeightedIndex(array.length, true);
-                int y = getWeightedIndex(array[x].length, true);
+        int x = getWeightedIndex(array.length, true);
+        int y = getWeightedIndex(array[x].length, true);
+        BlockState currentState = array[x][y];
 
-                BlockState currentState = array[x][y];
-                HullbackDirtManager.HullbackDirtEntry entry = Whaleborne.PROXY.getHullbackDirtManager().get().stream().filter(e -> e.matches(currentState)).findFirst().orElse(null);
-                
-                if (entry != null && entry.growth().isPresent() && this.random.nextBoolean()) {
-                    array[x][y] = applyProperties(entry.growth().get(), entry.growthProperties());
-                    this.whale.level().playSound(null, whale.getX(), whale.getY(), whale.getZ(), entry.soundOnGrowth() != null ? entry.soundOnGrowth() : net.minecraft.sounds.SoundEvents.BONE_MEAL_USE, net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0F);
-                    syncDirtToClients();
-                    return;
-                }
+        // Try to grow existing vegetation
+        if (tryGrowExisting(array, x, y, currentState, bottom)) return;
 
-                if (currentState == null || currentState.isAir()) {
-                    List<HullbackDirtManager.HullbackDirtEntry> candidates = getCandidates(true, partName);
-                    List<HullbackDirtManager.HullbackDirtEntry> successful = new ArrayList<>();
+        // Try to place new vegetation on empty slots
+        if (currentState == null || currentState.isAir()) {
+            tryPlaceNew(array, x, y, partName, bottom);
+        }
+    }
 
-                    for (HullbackDirtManager.HullbackDirtEntry candidate : candidates) {
-                        if (random.nextDouble() < candidate.placementChance()) {
-                            successful.add(candidate);
-                        }
-                    }
+    /** Attempts to grow an existing dirt entry. Returns true if growth occurred. */
+    private boolean tryGrowExisting(BlockState[][] array, int x, int y, BlockState currentState, boolean bottom) {
+        HullbackDirtManager.HullbackDirtEntry entry = Whaleborne.PROXY.getHullbackDirtManager().get().stream()
+                .filter(e -> e.matches(currentState)).findFirst().orElse(null);
 
-                    if (!successful.isEmpty()) {
-                        HullbackDirtManager.HullbackDirtEntry chosen = successful.get(random.nextInt(successful.size()));
-                        array[x][y] = applyProperties(chosen.block(), chosen.blockProperties());
+        if (entry != null && entry.growth().isPresent() && this.random.nextBoolean()) {
+            array[x][y] = applyProperties(entry.growth().get(), entry.growthProperties());
+            playDirtSound(entry.soundOnGrowth());
+            if (!bottom) topDirtCleared = false;
+            syncDirtToClients();
+            return true;
+        }
+        return false;
+    }
 
-                        this.whale.level().playSound(null, whale.getX(), whale.getY(), whale.getZ(), chosen.soundOnGrowth() != null ? chosen.soundOnGrowth() : net.minecraft.sounds.SoundEvents.BONE_MEAL_USE, net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0F);
-                        syncDirtToClients();
-                    }
-                }
-            }
-        } else {
-             if (this.random.nextInt(30000) <= 5) {
-                int x = getWeightedIndex(array.length, true);
-                int y = getWeightedIndex(array[x].length, true);
+    /** Attempts to place new vegetation on an empty slot. */
+    private void tryPlaceNew(BlockState[][] array, int x, int y, String partName, boolean bottom) {
+        List<HullbackDirtManager.HullbackDirtEntry> candidates = getCandidates(bottom, partName);
+        List<HullbackDirtManager.HullbackDirtEntry> successful = new ArrayList<>();
 
-                BlockState currentState = array[x][y];
-
-                HullbackDirtManager.HullbackDirtEntry entry = Whaleborne.PROXY.getHullbackDirtManager().get().stream().filter(e -> e.matches(currentState)).findFirst().orElse(null);
-
-                if (entry != null && entry.growth().isPresent() && this.random.nextBoolean()) {
-                    array[x][y] = applyProperties(entry.growth().get(), entry.growthProperties());
-                    if (entry.soundOnGrowth() != null) {
-                        this.whale.level().playSound(null, whale.getX(), whale.getY(), whale.getZ(), entry.soundOnGrowth(), net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0f);
-                    } else {
-                        this.whale.level().playSound(null, whale.getX(), whale.getY(), whale.getZ(), net.minecraft.sounds.SoundEvents.BONE_MEAL_USE, net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0f);
-                    }
-                    syncDirtToClients();
-                    return;
-                }
-
-                if (currentState == null || currentState.isAir()) {
-                    // Logic for top seems similar but distinct in original code?
-                    // Original code: if (currentState == null || currentState.isAir()) { List candidates = getCandidates(false, partName); ... }
-                    // Yes, essentially same structure.
-                    List<HullbackDirtManager.HullbackDirtEntry> candidates = getCandidates(false, partName);
-                    // ... (Original Code didn't finish showing, assuming symmetric logic) ...
-                    // Let's implement check for candidates:
-                     List<HullbackDirtManager.HullbackDirtEntry> successful = new ArrayList<>();
-                     for (HullbackDirtManager.HullbackDirtEntry candidate : candidates) {
-                        if (random.nextDouble() < candidate.placementChance()) {
-                            successful.add(candidate);
-                        }
-                    }
-                     if (!successful.isEmpty()) {
-                        HullbackDirtManager.HullbackDirtEntry chosen = successful.get(random.nextInt(successful.size()));
-                        array[x][y] = applyProperties(chosen.block(), chosen.blockProperties());
-                         if (chosen.soundOnGrowth() != null) {
-                            this.whale.level().playSound(null, whale.getX(), whale.getY(), whale.getZ(), chosen.soundOnGrowth(), net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0f);
-                        } else {
-                            this.whale.level().playSound(null, whale.getX(), whale.getY(), whale.getZ(), net.minecraft.sounds.SoundEvents.BONE_MEAL_USE, net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0f);
-                        }
-                        syncDirtToClients();
-                    }
-                }
+        for (HullbackDirtManager.HullbackDirtEntry candidate : candidates) {
+            if (random.nextDouble() < candidate.placementChance()) {
+                successful.add(candidate);
             }
         }
+
+        if (!successful.isEmpty()) {
+            HullbackDirtManager.HullbackDirtEntry chosen = successful.get(random.nextInt(successful.size()));
+            array[x][y] = applyProperties(chosen.block(), chosen.blockProperties());
+            playDirtSound(chosen.soundOnGrowth());
+            if (!bottom) topDirtCleared = false;
+            syncDirtToClients();
+        }
+    }
+
+    /** Plays the appropriate sound for dirt growth/placement. */
+    private void playDirtSound(@Nullable net.minecraft.sounds.SoundEvent sound) {
+        net.minecraft.sounds.SoundEvent effectiveSound = sound != null ? sound : net.minecraft.sounds.SoundEvents.BONE_MEAL_USE;
+        whale.level().playSound(null, whale.getX(), whale.getY(), whale.getZ(),
+                effectiveSound, net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0F);
     }
 
     private int getWeightedIndex(int length, boolean higherWeight) {
@@ -250,30 +232,24 @@ public class HullbackDirt {
         return length - 1;
     }
     
-    // Helper to map part name back to array index for internal usage
+    /**
+     * Maps a part name to the internal array index used by {@link #getDirtArray(int, boolean)}.
+     */
     private int getArrayIndex(String partName, boolean bottom) {
         if (bottom) {
-             if (partName.contains("head")) return 0; // head
-             if (partName.contains("body")) return 2; // body
-             if (partName.contains("tail")) return 3; // tail
-             if (partName.contains("fluke")) return 4; // fluke
+            if (partName.contains("head")) return 0;
+            if (partName.contains("body")) return 2;
+            if (partName.contains("tail")) return 3;
+            if (partName.contains("fluke")) return 4;
         } else {
-             if (partName.contains("head")) return 0; // headTop
-             if (partName.contains("body")) return 2; // bodyTop (mapped to index 2 here? wait)
-             // getDirtArray logic: index 0 -> headTop, index != 0 -> bodyTop
-             // So if top: 0 for head, 1 for body?
-             // let's check getDirtArray logic again:
-             /*
-                if(bottom){ switch(index) { case 2: body, case 3: tail, case 4: fluke, default: head } }
-                else { if (index == 0) headTop else bodyTop }
-             */
-             if (partName.contains("head")) return 0;
-             return 1; // bodyTop
+            if (partName.contains("head")) return 0;
+            return 1; // bodyTop
         }
         return -1;
     }
 
     public void clearTopDirt() {
+         if (topDirtCleared) return;
          for (int x = 0; x < headTopDirt.length; x++) {
              for (int y = 0; y < headTopDirt[x].length; y++) {
                  headTopDirt[x][y] = Blocks.AIR.defaultBlockState();
@@ -284,6 +260,7 @@ public class HullbackDirt {
                  bodyTopDirt[x][y] = Blocks.AIR.defaultBlockState();
              }
          }
+         topDirtCleared = true;
     }
 
     public void syncDirtToClients() {

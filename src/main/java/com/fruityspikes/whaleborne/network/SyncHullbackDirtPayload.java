@@ -1,18 +1,14 @@
 package com.fruityspikes.whaleborne.network;
 
 import com.fruityspikes.whaleborne.Whaleborne;
-import com.fruityspikes.whaleborne.server.entities.HullbackEntity;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtUtils;
-import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -56,31 +52,7 @@ public record SyncHullbackDirtPayload(int entityId, CompoundTag dirtData, int ar
     }
 
     public static void handle(SyncHullbackDirtPayload payload, IPayloadContext context) {
-        context.enqueueWork(() -> {
-            // Client side handling
-            // Verify client side execution properly
-             handleClient(payload);
-        });
-    }
-
-    private static void handleClient(SyncHullbackDirtPayload payload) {
-        // Accessing Minecraft instance directly is fine here as this lambda runs on main thread
-        // Ideally should be in a separate client-only class to avoid classloading issues on dedicated server
-        // But for migration, we keep logic similar
-        Entity entity = Minecraft.getInstance().level.getEntity(payload.entityId());
-        if (entity instanceof HullbackEntity hullback) {
-            BlockState[][] dirtArray = deserializeDirtArray(payload.dirtData());
-            if (dirtArray != null) {
-                switch (payload.arrayType()) {
-                    case 0 -> hullback.getWhaleDirt().headDirt = dirtArray;
-                    case 1 -> hullback.getWhaleDirt().headTopDirt = dirtArray;
-                    case 2 -> hullback.getWhaleDirt().bodyDirt = dirtArray;
-                    case 3 -> hullback.getWhaleDirt().bodyTopDirt = dirtArray;
-                    case 4 -> hullback.getWhaleDirt().tailDirt = dirtArray;
-                    case 5 -> hullback.getWhaleDirt().flukeDirt = dirtArray;
-                }
-            }
-        }
+        context.enqueueWork(() -> ClientPacketHandler.handleDirtSync(payload));
     }
 
     private static CompoundTag serializeDirtArray(BlockState[][] array) {

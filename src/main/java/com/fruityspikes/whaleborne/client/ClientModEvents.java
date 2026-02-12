@@ -68,8 +68,7 @@ public class ClientModEvents
     public static void onClientSetup(FMLClientSetupEvent event)
     {
         //Screen registration moved to registerScreens
-        LOGGER.info("HELLO FROM CLIENT SETUP");
-        LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
+        // Client setup complete
     }
     @SubscribeEvent
     public static void registerLayerDefinitions(EntityRenderersEvent.RegisterLayerDefinitions event) {

@@ -31,7 +31,7 @@ public record ToggleControlPayload(int entityId, boolean vectorControl) implemen
             if (context.player() instanceof ServerPlayer player) {
                 Entity entity = player.level().getEntity(payload.entityId);
                 if (entity instanceof HullbackEntity hullback) {
-                    // SEGURANÇA: Só permite mudar e o jogador estiver pilotando (usa getRootVehicle para compatibilidade com Helm)
+                    // SAFETY: Only allow toggle if the player is piloting (uses getRootVehicle for Helm compat)
                     if (player.getRootVehicle() == hullback) {
                          hullback.setVectorControl(payload.vectorControl);
                     }
