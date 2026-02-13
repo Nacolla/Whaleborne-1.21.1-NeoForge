@@ -32,7 +32,7 @@ public class HullbackTryFindWaterGoal extends Goal {
         if (mob instanceof HullbackEntity hullback && hullback.stationaryTicks > 0) return false;
         
         if(isBeached)
-            return mob.tickCount > 20 && !this.mob.isEyeInFluidType(Fluids.WATER.getFluidType());
+            return mob.tickCount > 20 && (!this.mob.isEyeInFluidType(Fluids.WATER.getFluidType()) || !this.mob.level().getFluidState(this.mob.blockPosition().above(3)).is(FluidTags.WATER));
         return mob.tickCount > 20 && !mob.level().getFluidState(mob.blockPosition().below()).is(FluidTags.WATER);
     }
 
@@ -79,8 +79,8 @@ public class HullbackTryFindWaterGoal extends Goal {
             mob.yBodyRot = mob.getYRot();
             Vec3 direction = target.subtract(mob.position()).normalize();
 
-            double lungePower = 1;
-            Vec3 velocity = direction.scale(lungePower).add(0, 0.5, 0);
+            double lungePower = 1.5;
+            Vec3 velocity = direction.scale(lungePower).add(0, 1.0, 0);
             if(isBeached) {
                 mob.playSound(WBSoundRegistry.ORGAN.get(), 2, 2f);
                 mob.playSound(WBSoundRegistry.ORGAN.get(), 2, 1f);
