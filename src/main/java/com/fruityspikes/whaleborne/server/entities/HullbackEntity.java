@@ -145,6 +145,16 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     private float mouthOpenProgress;
     private float mouthTarget;
     private boolean wasPilotControlled = false;
+    private boolean pitchLocked = false;
+
+    @Override
+    public void setXRot(float xRot) {
+        if (pitchLocked) {
+            super.setXRot(0f);
+        } else {
+            super.setXRot(xRot);
+        }
+    }
 
     public static UUID getSailSpeedModifierUuid() {
         return SAIL_SPEED_MODIFIER_UUID;
@@ -1331,7 +1341,16 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         super.tick();
 
         // Apply Hard Lock if stationary to prevent snapping caused by AI combat/movement
-        if (this.getStationaryTicks() > 0) {
+        // BREATHING COMPATIBILITY: Do NOT lock pitch if the whale is trying to breach/breathe!
+        boolean isBreachingAction = false;
+        // Seek the goal if present
+        for (net.minecraft.world.entity.ai.goal.WrappedGoal goal : this.goalSelector.getAvailableGoals()) {
+            if (goal.getGoal() instanceof HullbackBreathAirGoal breachGoal) {
+                if (breachGoal.isBreaching()) isBreachingAction = true;
+            }
+        }
+
+        if ((this.getStationaryTicks() > 0 || this.hasAnchorDown()) && !isBreachingAction) {
             this.setYRot(snapshot.yaw());
             this.setYBodyRot(snapshot.bodyYaw());
             this.setYHeadRot(snapshot.headYaw());
@@ -1339,8 +1358,15 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             this.yBodyRotO = snapshot.bodyYaw();
             this.yHeadRotO = snapshot.headYaw();
             
+            // CRITICAL FIX: Lock pitch to prevent vertical tilting when anchored/stationary
+            this.pitchLocked = true;
+            super.setXRot(0f); // Force immediate 0 to prevent one-tick jitters
+            this.xRotO = 0f;
+            
             // Set delta movement to zero to stop wagging tail due to swimCycle
             this.setDeltaMovement(0, this.getDeltaMovement().y, 0);
+        } else {
+            this.pitchLocked = false;
         }
 
 
@@ -1867,10 +1893,14 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         @Override
         public void tick() {
-            if (HullbackEntity.this.getStationaryTicks() > 0) {
+            if (HullbackEntity.this.getStationaryTicks() > 0 || HullbackEntity.this.pitchLocked) {
                 this.mob.setSpeed(0.0F);
                 this.mob.setZza(0.0F);
                 this.mob.setYya(0.0F);
+                // Also force XRot to 0 if locked, though setXRot override handles most of it
+                if (HullbackEntity.this.pitchLocked) {
+                    HullbackEntity.this.setXRot(0f);
+                }
                 return;
             }
 
@@ -1903,6 +1933,10 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                         double d4 = Math.sqrt(d0 * d0 + d2 * d2);
                         if (Math.abs(d1) > 1.0E-5F || Math.abs(d4) > 1.0E-5F) {
                             float f3 = -((float)(Mth.atan2(d1, d4) * 180.0F / (float)Math.PI));
+                            
+                            // Limit pitch angle during AI movement to prevent excessive tilting
+                            f3 = Mth.clamp(f3, -20f, 20f);
+
                             f3 = Mth.clamp(Mth.wrapDegrees(f3), (float)(-this.maxTurnX), (float)this.maxTurnX);
                             this.mob.setXRot(this.rotlerp(this.mob.getXRot(), f3, 5.0F));
                         }
@@ -1960,8 +1994,8 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
     }
 
     class HullbackRandomSwimGoal extends RandomSwimmingGoal {
-        private static final int HORIZONTAL_RANGE = 20;
-        private static final int VERTICAL_RANGE = 20;
+        private static final int HORIZONTAL_RANGE = 10;
+        private static final int VERTICAL_RANGE = 10;
         private static final float FRONT_ANGLE = 45.0f;
         private static final int STUCK_TIMEOUT = 100;
         private static final double MIN_DISTANCE = 2.0;
@@ -2044,6 +2078,10 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
         @Override
         public void tick() {
             super.tick();
+
+            if (!((HullbackEntity)mob).nose.isEyeInFluidType(Fluids.WATER.getFluidType())) {
+                 mob.setDeltaMovement(mob.getDeltaMovement().add(0, -0.1, 0));
+            }
 
             if (currentTarget != null && mob.getNavigation().isDone() && mob.position().distanceTo(currentTarget) > MIN_DISTANCE) {
                 mob.getNavigation().moveTo(currentTarget.x, currentTarget.y, currentTarget.z, speedModifier);
@@ -2699,9 +2737,22 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
                 }
             }
 
-            // PITCH STABILIZATION: Reset XRot to 0 if not controlled and not breaching
-            if (!this.level().isClientSide && !isBreachingAction && this.getControllingPassenger() == null) {
-                this.setXRot(Mth.rotLerp(0.05f, this.getXRot(), 0f));
+            // PITCH STABILIZATION: Reset XRot to 0 if not controlled or ANCHORED/STATIONARY
+            // Apply on both client and server for smooth stabilization
+            // PITCH STABILIZATION: Reset XRot to 0 if not controlled or ANCHORED/STATIONARY
+            // Apply on both client and server for smooth stabilization
+            if (!isBreachingAction && (this.getControllingPassenger() == null || this.hasAnchorDown() || this.getStationaryTicks() > 0)) {
+                if (this.hasAnchorDown() || this.getStationaryTicks() > 0) {
+                    this.pitchLocked = true;
+                    this.setXRot(0f); // Calls override which forces super.setXRot(0)
+                    this.xRotO = 0f;
+                } else {
+                    float lerpSpeed = 0.08f;
+                    this.setXRot(Mth.rotLerp(lerpSpeed, this.getXRot(), 0f));
+                }
+            } else {
+                // If breaching or moving freely, ensure lock is released (though tick() also manages this)
+                if (isBreachingAction) this.pitchLocked = false;
             }
 
             if (this.isVehicle() && this.getControllingPassenger() instanceof Player player) {
@@ -2763,6 +2814,16 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
 
         float xxa = player.xxa;
         float zza = player.zza;
+
+        if (this.isInWater()) {
+            float currentPitch = this.getXRot();
+            float maxPitch = 25f; // Maximum tilt angle in degrees
+
+            if (Math.abs(currentPitch) > maxPitch) {
+                this.setXRot(Mth.clamp(currentPitch, -maxPitch, maxPitch));
+                this.xRotO = this.getXRot();
+            }
+        }
 
         if (vectorControl) {
             // --- VECTOR MODE (3rd Person) ---
@@ -2968,7 +3029,24 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             }
         }
 
-        float swimCycle = (float) (Mth.sin(this.tickCount * 0.1f) * this.getDeltaMovement().horizontalDistance());
+        // Disable swimCycle when anchored or stationary to prevent tilting
+        float swimCycle;
+        if (this.pitchLocked || (this.hasAnchorDown() || this.getStationaryTicks() > 0)) {
+            swimCycle = 0f;
+        } else {
+             // BREATHING COMPATIBILITY: Force swimCycle to 0 if breaching to prevent visual glitches
+             boolean isBreachingAction = false;
+             for (net.minecraft.world.entity.ai.goal.WrappedGoal goal : this.goalSelector.getAvailableGoals()) {
+                 if (goal.getGoal() instanceof HullbackBreathAirGoal breachGoal) {
+                     if (breachGoal.isBreaching()) isBreachingAction = true;
+                 }
+             }
+             if(isBreachingAction) {
+                 swimCycle = 0f;
+             } else {
+                 swimCycle = (float) (Mth.sin(this.tickCount * 0.1f) * this.getDeltaMovement().horizontalDistance());
+             }
+        }
         float yawRad = -this.getYRot() * Mth.DEG_TO_RAD;
         float pitchRad = this.getXRot() * Mth.DEG_TO_RAD;
 
@@ -3128,6 +3206,12 @@ public class HullbackEntity extends WaterAnimal implements ContainerListener, Ha
             this.setDeltaMovement(0, this.getDeltaMovement().y, 0);
         } else {
             this.setDeltaMovement(Vec3.ZERO);
+        }
+
+        // Also stabilize pitch when stopping
+        if (this.hasAnchorDown()) {
+            this.setXRot(Mth.rotLerp(0.5f, this.getXRot(), 0f));
+            this.xRotO = this.getXRot();
         }
     }
 
