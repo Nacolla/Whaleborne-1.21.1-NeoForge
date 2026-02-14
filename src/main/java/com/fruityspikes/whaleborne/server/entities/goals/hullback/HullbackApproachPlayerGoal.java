@@ -23,7 +23,7 @@ public class HullbackApproachPlayerGoal extends Goal {
     private static Ingredient TEMPT_AXES = Ingredient.of(ItemTags.AXES);
     private final HullbackEntity hullback;
     private final float speedModifier;
-    private static final TargetingConditions TEMP_TARGETING = TargetingConditions.forNonCombat().range(10.0).ignoreLineOfSight();
+    private static final TargetingConditions TEMP_TARGETING = TargetingConditions.forNonCombat().range(20.0).ignoreLineOfSight();
     private final TargetingConditions targetingConditions;
     private Player targetPlayer;
     private int repositionCooldown;

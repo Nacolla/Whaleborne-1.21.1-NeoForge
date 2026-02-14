@@ -62,4 +62,17 @@ public class HullbackAIManager {
         return hullback.goalSelector.getAvailableGoals().stream()
             .anyMatch(wrappedGoal -> goalClass.isInstance(wrappedGoal.getGoal()));
     }
+
+    /**
+     * Checks if the Hullback is currently executing a breaching/breathing maneuver.
+     * @return true if HullbackBreathAirGoal is active and breaching.
+     */
+    public boolean isBreaching() {
+        for (net.minecraft.world.entity.ai.goal.WrappedGoal goal : hullback.goalSelector.getAvailableGoals()) {
+            if (goal.getGoal() instanceof HullbackBreathAirGoal breachGoal) {
+                if (breachGoal.isBreaching()) return true;
+            }
+        }
+        return false;
+    }
 }

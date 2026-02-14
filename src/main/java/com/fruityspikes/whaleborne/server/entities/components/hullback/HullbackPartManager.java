@@ -81,7 +81,13 @@ public class HullbackPartManager {
 
         Vec3 delta = hullback.getDeltaMovement();
         float horizontalSpeed = (float) Math.sqrt(delta.x * delta.x + delta.z * delta.z);
-        float swimCycle = Mth.sin(hullback.tickCount * 0.1f) * horizontalSpeed;
+        // Disable swimCycle when anchored or stationary (pitch locked) to prevent tilting/wiggling
+        float swimCycle;
+        if (hullback.isPitchLocked()) {
+             swimCycle = 0f;
+        } else {
+             swimCycle = Mth.sin(hullback.tickCount * 0.1f) * horizontalSpeed;
+        }
         float yawRad = -hullback.getYRot() * Mth.DEG_TO_RAD;
         float pitchRad = hullback.getXRot() * Mth.DEG_TO_RAD;
 

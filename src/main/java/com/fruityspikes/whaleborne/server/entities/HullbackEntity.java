@@ -75,8 +75,8 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     // DIRT_TICK_CHANCE / DIRT_TICK_DENOMINATOR removed — random gate now lives
     // inside HullbackDirt.randomTick(), matching the original 1.20.1 structure.
     private static final int POST_LOAD_VALIDATION_DELAY_TICKS = 5;
-    private static final int STATIONARY_TICKS_PLAYER_ABOVE = 5;
-    private static final int STATIONARY_TICKS_DISMOUNT = 100;
+    private static final int STATIONARY_TICKS_PLAYER_ABOVE = 40;
+    private static final int STATIONARY_TICKS_DISMOUNT = 120;
     private static final int STATIONARY_TICKS_INITIAL = 60;
     private static final int DIRT_INITIAL_SYNC_TICK = 10;
     private static final int EARLY_TICK_THRESHOLD = 20;
@@ -141,9 +141,23 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     private float mouthOpenProgress;
     private float mouthTarget;
     private boolean isBreaching;
+    private boolean pitchLocked = false;
+
+    @Override
+    public void setXRot(float xRot) {
+        if (pitchLocked) {
+            super.setXRot(0f);
+        } else {
+            super.setXRot(xRot);
+        }
+    }
 
     public HullbackDirt getWhaleDirt() {
         return this.HullbackDirt;
+    }
+
+    public boolean isPitchLocked() {
+        return pitchLocked;
     }
 
     public void setBreaching(boolean breaching) {
@@ -459,7 +473,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
                     box.maxX,
                     box.maxY + 2.0,
                     box.maxZ
-            );
+            ).inflate(1.0, 0.0, 1.0);
 
             List<Entity> entities = level().getEntitiesOfClass(Entity.class, topSurface,
                     entity -> entity instanceof Player &&
@@ -653,6 +667,10 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
     @Override
     public void tick() {
+        if (this.level().isClientSide && this.getStationaryTicks() > 0) {
+             this.setDeltaMovement(Vec3.ZERO);
+        }
+
         if (!this.level().isClientSide && this.tickCount == 20) {
             this.getWhaleDirt().syncDirtToClients();
         }
@@ -690,11 +708,27 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     }
 
     private void applyHardLock(RotationSnapshot snapshot) {
-        if (this.getStationaryTicks() > 0) {
+        // BREATHING COMPATIBILITY: Do NOT lock pitch if the whale is trying to breach/breathe!
+        boolean isBreachingAction = false;
+        if (this.aiManager != null) {
+            isBreachingAction = this.aiManager.isBreaching();
+        }
+
+        if ((this.getStationaryTicks() > 0 || this.hasAnchorDown()) && !isBreachingAction) {
             this.setYRot(snapshot.yaw());
             this.setYBodyRot(snapshot.bodyYaw());
             this.setYHeadRot(snapshot.headYaw());
             this.yRotO = snapshot.yaw();
+
+            // CRITICAL FIX: Lock pitch to prevent vertical tilting when anchored/stationary
+            this.pitchLocked = true;
+            super.setXRot(0f); // Force immediate 0 to prevent one-tick jitters
+            this.xRotO = 0f;
+            
+            // Set delta movement to zero to stop wagging tail due to swimCycle
+            this.setDeltaMovement(0, this.getDeltaMovement().y, 0);
+        } else {
+            this.pitchLocked = false;
         }
     }
 
@@ -807,7 +841,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         }
 
         if (scanPlayerAbove()) {
-            stationaryTicks = STATIONARY_TICKS_PLAYER_ABOVE;
+            stationaryTicks = Math.max(stationaryTicks, STATIONARY_TICKS_PLAYER_ABOVE);
         }
 
         if (!this.level().isClientSide) {
@@ -944,6 +978,12 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         } else {
             this.setDeltaMovement(Vec3.ZERO);
         }
+
+        // Also stabilize pitch when stopping
+        if (this.hasAnchorDown()) {
+            this.setXRot(Mth.rotLerp(0.5f, this.getXRot(), 0f));
+            this.xRotO = this.getXRot();
+        }
     }
 
     private void updateMouthOpening() {
@@ -1004,11 +1044,26 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
         @Override
         public void tick() {
-            if (HullbackEntity.this.getStationaryTicks() > 0) {
+            if (HullbackEntity.this.getStationaryTicks() > 0 || HullbackEntity.this.pitchLocked) {
                 this.operation = Operation.WAIT;
+                this.mob.setSpeed(0.0F);
+                // Also force XRot to 0 if locked
+                if (HullbackEntity.this.pitchLocked) {
+                    HullbackEntity.this.setXRot(0f);
+                }
                 return;
             }
+            if (this.mob.isInWater()) {
+                this.mob.setSpeed((float) this.mob.getAttributeValue(getSwimSpeed()));
+            } else {
+                this.mob.setSpeed((float) this.mob.getAttributeValue(Attributes.MOVEMENT_SPEED));
+            }
             super.tick();
+
+            // Limit pitch angle during AI movement to prevent excessive tilting
+            if (this.mob.isInWater()) {
+                this.mob.setXRot(Mth.clamp(this.mob.getXRot(), -20f, 20f));
+            }
         }
     }
 
@@ -1140,6 +1195,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     @Override
     protected void removePassenger(Entity passenger) {
         if(passenger instanceof Player)
+        if(passenger instanceof Player)
             stationaryTicks = STATIONARY_TICKS_DISMOUNT;
         if(passenger.isRemoved())
             for (int i = 0; i < 7; i++) {
@@ -1233,7 +1289,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
             if (isAtHelm) {
                 // SAILING AT HELM: Maintain target depth -4.7 for perfect deck alignment
-                double targetY = this.level().getSeaLevel() - 4.7;
+                double targetY = this.level().getSeaLevel() - 4.5;
                 double currentY = this.getY();
                 double diff = targetY - currentY;
                 
@@ -1262,6 +1318,23 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
                     this.setDeltaMovement(this.getDeltaMovement().add(0, -0.05, 0));
                 }
             }
+        }
+
+        // PITCH STABILIZATION: Reset XRot to 0 if not controlled or ANCHORED/STATIONARY
+        // This ensures the whale doesn't freeze in a tilted state when stopping.
+        // PITCH STABILIZATION: Reset XRot to 0 if not controlled or ANCHORED/STATIONARY
+        if (!this.level().isClientSide && !isBreachingAction && (this.getControllingPassenger() == null || this.hasAnchorDown() || this.getStationaryTicks() > 0)) {
+            if (this.hasAnchorDown() || this.getStationaryTicks() > 0) {
+                this.pitchLocked = true;
+                this.setXRot(0f);
+                this.xRotO = 0f;
+            } else {
+                 float lerpSpeed = 0.08f;
+                 this.setXRot(Mth.rotLerp(lerpSpeed, this.getXRot(), 0f));
+            }
+        } else {
+             // If breaching or moving freely, ensure lock is released (though applyHardLock also manages this)
+             if (isBreachingAction) this.pitchLocked = false;
         }
         super.travel(travelVector);
 
@@ -1294,7 +1367,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
     @Override
     protected float getRiddenSpeed(Player player) {
-        return (float) (this.isHullbackInWater() ? this.getAttributeValue(NeoForgeMod.SWIM_SPEED) : this.getAttributeValue(Attributes.MOVEMENT_SPEED));
+        return (float) (this.isHullbackInWater() ? this.getAttributeValue(getSwimSpeed()) : this.getAttributeValue(Attributes.MOVEMENT_SPEED));
     }
 
     @Override
@@ -1328,6 +1401,16 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
     @Override
     protected Vec3 getRiddenInput(Player player, Vec3 travelVector) {
+        // Limit pitch during swimming to prevent excessive tilting
+        if (this.isInWater()) {
+            float currentPitch = this.getXRot();
+            float maxPitch = 25f; // Maximum tilt angle in degrees
+
+            if (Math.abs(currentPitch) > maxPitch) {
+                this.setXRot(Mth.clamp(currentPitch, -maxPitch, maxPitch));
+                this.xRotO = this.getXRot();
+            }
+        }
         return controlManager.getRiddenInput(player, travelVector);
     }
 }
