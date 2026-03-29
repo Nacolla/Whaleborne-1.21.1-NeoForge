@@ -160,6 +160,26 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     private float smoothedAnimSpeed = 0f;
     private int lastAnimSpeedTick = -1;
 
+    // ─── Wake State (client-side rendering, not saved/synced) ─────
+    // Computed from position deltas which are synced by vanilla entity
+    // tracking, so ALL observing clients see the same wake automatically.
+    public float wakeIntensity = 0f;
+    public float flukeSplashIntensity = 0f;
+    public float bowSprayIntensity = 0f;
+
+    // Wake trail history — ring buffer of past tail positions for fading foam trail
+    public static final int WAKE_TRAIL_LENGTH = 16;
+    public final Vec3[] wakeTrailPos = new Vec3[WAKE_TRAIL_LENGTH];
+    public final float[] wakeTrailYaw = new float[WAKE_TRAIL_LENGTH];
+    public final float[] wakeTrailAlpha = new float[WAKE_TRAIL_LENGTH];
+    public int wakeTrailHead = 0;
+    private int wakeTrailTick = 0;
+
+    // Environmental wake modifiers (cached, updated every 20 ticks for performance)
+    public float wakeDepthFactor = 1.0f;
+    public float wakeWeatherFactor = 1.0f;
+    public int wakeFoamR = 230, wakeFoamG = 245, wakeFoamB = 255;
+
     // ─── State: Movement & Breaching ─────────────────────────────
     private boolean isBreaching;
     private boolean pitchLocked = false;
@@ -957,6 +977,16 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         tickSubEntitiesAndParticles();
         updatePlatformHeight();
         updateStationaryPlatforms();
+
+        // Wake intensity is computed client-side from position deltas
+        // (synced by vanilla entity tracking — visible to all clients)
+        if (this.level().isClientSide) {
+            updateWakeState();
+            // When the Wakes mod is present, generate per-part wave simulation nodes
+            if (com.fruityspikes.whaleborne.client.renderers.HullbackWakeRenderer.isWakesModLoaded()) {
+                com.fruityspikes.whaleborne.client.compat.WakesCompat.generatePartWakes(this);
+            }
+        }
     }
 
 
@@ -1178,6 +1208,185 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Computes wake intensity each client tick from the entity's swim speed.
+     * Uses progressive buildup/decay with different rates for attack/release,
+     * creates a natural "inertia" feel.
+     * <p>
+     * Also manages: foam trail history, environmental modifiers (depth, weather,
+     * biome color), wake sound playback, and bow splash particles.
+     */
+    private void updateWakeState() {
+        float speed = getAnimationSwimSpeed();
+        float targetIntensity = Mth.clamp(
+                (speed - 0.008f) / (0.16f - 0.008f), 0f, 1f);
+
+        // Progressive buildup (fast) / decay (slow) for main wake
+        if (targetIntensity > wakeIntensity) {
+            wakeIntensity = Math.min(wakeIntensity + 0.05f, targetIntensity);
+        } else {
+            wakeIntensity = Math.max(wakeIntensity - 0.02f, 0f);
+        }
+
+        // Fluke splash: active only when fluke is near or above the water surface
+        if (partManager != null && partManager.partPosition != null
+                && partManager.partPosition.length > 4
+                && partManager.partPosition[4] != null) {
+            float waterY = level().getSeaLevel();
+            boolean flukeNearSurface = partManager.partPosition[4].y > waterY - 0.5;
+            float splashTarget = (flukeNearSurface && speed > 0.004f)
+                    ? Mth.clamp(targetIntensity * 1.5f, 0f, 1f) : 0f;
+            if (splashTarget > flukeSplashIntensity) {
+                flukeSplashIntensity = Math.min(flukeSplashIntensity + 0.08f, splashTarget);
+            } else {
+                flukeSplashIntensity = Math.max(flukeSplashIntensity - 0.06f, 0f);
+            }
+        }
+
+        // Bow spray follows the main wake with a slight delay for realism
+        float sprayTarget = wakeIntensity * 0.7f;
+        if (sprayTarget > bowSprayIntensity) {
+            bowSprayIntensity = Math.min(bowSprayIntensity + 0.04f, sprayTarget);
+        } else {
+            bowSprayIntensity = Math.max(bowSprayIntensity - 0.012f, 0f);
+        }
+
+        // ── Environmental modifiers (cached, updated every 20 ticks) ──
+        if (this.tickCount % 20 == 0) {
+            updateWakeEnvironment();
+        }
+
+        // ── Foam trail recording (every 3 ticks when moving) ──
+        wakeTrailTick++;
+        if (wakeTrailTick >= 3 && wakeIntensity > 0.02f) {
+            wakeTrailTick = 0;
+            if (partManager != null && partManager.partPosition != null
+                    && partManager.partPosition.length > 3
+                    && partManager.partPosition[3] != null) {
+                wakeTrailPos[wakeTrailHead] = partManager.partPosition[3];
+                wakeTrailYaw[wakeTrailHead] = (partManager.partYRot != null && partManager.partYRot.length > 3)
+                        ? partManager.partYRot[3] : 0f;
+                wakeTrailAlpha[wakeTrailHead] = wakeIntensity * 0.5f;
+                wakeTrailHead = (wakeTrailHead + 1) % WAKE_TRAIL_LENGTH;
+            }
+        }
+
+        // Decay trail alphas over time
+        for (int i = 0; i < WAKE_TRAIL_LENGTH; i++) {
+            if (wakeTrailAlpha[i] > 0) {
+                wakeTrailAlpha[i] = Math.max(0, wakeTrailAlpha[i] - 0.008f);
+            }
+        }
+
+        // ── Wake sound: water rushing at variable frequency ──
+        if (wakeIntensity > 0.1f) {
+            int soundInterval = Math.max(8, (int) (25 * (1 - wakeIntensity)));
+            if (this.tickCount % soundInterval == 0) {
+                this.level().playLocalSound(
+                        this.getX(), this.getY(), this.getZ(),
+                        net.minecraft.sounds.SoundEvents.BOAT_PADDLE_WATER,
+                        net.minecraft.sounds.SoundSource.NEUTRAL,
+                        wakeIntensity * 0.3f,
+                        0.65f + wakeIntensity * 0.5f,
+                        false
+                );
+            }
+        }
+
+        // ── Bow splash particles: very sparse (1-2/sec at high speed) ──
+        if (wakeIntensity > 0.35f && random.nextFloat() < wakeIntensity * 0.12f) {
+            if (partManager != null && partManager.partPosition != null
+                    && partManager.partPosition.length > 0
+                    && partManager.partPosition[0] != null) {
+                Vec3 nosePos = partManager.partPosition[0];
+                float seaY = level().getSeaLevel() + 0.1f;
+                level().addParticle(
+                        ParticleTypes.SPLASH,
+                        nosePos.x + (random.nextFloat() - 0.5f) * 2,
+                        seaY,
+                        nosePos.z + (random.nextFloat() - 0.5f) * 2,
+                        0, 0.05, 0
+                );
+            }
+        }
+
+        // ── Hull-side foam particles: sparse splash along the flanks ──
+        // Creates small water disturbance particles along the body sides where
+        // the hull meets the water. Max ~3 particles/sec per side at full speed.
+        if (wakeIntensity > 0.2f && random.nextFloat() < wakeIntensity * 0.08f) {
+            if (partManager != null && partManager.partPosition != null
+                    && partManager.partPosition.length > 2
+                    && partManager.partPosition[2] != null
+                    && partManager.partYRot != null) {
+                Vec3 bodyPos = partManager.partPosition[2];
+                float bodyYaw = partManager.partYRot[2];
+                float seaY = level().getSeaLevel() + 0.1f;
+
+                // Pick a random point along the body length
+                float zOff = (random.nextFloat() - 0.3f) * 8f; // biased toward front
+                // Pick a random side (-1 or +1)
+                float side = random.nextBoolean() ? -4.0f : 4.0f;
+
+                // Rotate offset by body yaw
+                double cos = Math.cos(-bodyYaw);
+                double sin = Math.sin(-bodyYaw);
+                double worldX = bodyPos.x + side * cos - zOff * sin;
+                double worldZ = bodyPos.z + side * sin + zOff * cos;
+
+                level().addParticle(
+                        ParticleTypes.SPLASH,
+                        worldX + (random.nextFloat() - 0.5f) * 0.5,
+                        seaY,
+                        worldZ + (random.nextFloat() - 0.5f) * 0.5,
+                        0, 0.03, 0
+                );
+            }
+        }
+    }
+
+    /**
+     * Updates environmental wake modifiers: water depth, weather, and biome color.
+     * Called every 20 ticks for performance. Client-side only.
+     */
+    private void updateWakeEnvironment() {
+        // ── Depth-adaptive: scan for ocean floor depth ──
+        BlockPos pos = this.blockPosition();
+        int depth = 0;
+        BlockPos.MutableBlockPos probe = new BlockPos.MutableBlockPos();
+        int minY = Math.max(pos.getY() - 20, level().getMinBuildHeight());
+        for (int y = pos.getY() - 1; y > minY; y--) {
+            probe.set(pos.getX(), y, pos.getZ());
+            if (level().getBlockState(probe).isSolid()) break;
+            depth++;
+        }
+        // Shallow water = more pronounced wake (sea floor disturbs flow)
+        wakeDepthFactor = depth < 5 ? 1.35f : (depth < 10 ? 1.15f : 1.0f);
+
+        // ── Weather-responsive: storm = rougher seas = more foam ──
+        wakeWeatherFactor = level().isThundering() ? 1.4f
+                : (level().isRaining() ? 1.2f : 1.0f);
+
+        // ── Biome-tinted foam color ──
+        var biomeHolder = level().getBiome(this.blockPosition());
+        var keyOpt = biomeHolder.unwrapKey();
+        if (keyOpt.isPresent()) {
+            String path = keyOpt.get().location().getPath();
+            if (path.contains("swamp") || path.contains("mangrove")) {
+                // Murky greenish foam
+                wakeFoamR = 195; wakeFoamG = 225; wakeFoamB = 200;
+            } else if (path.contains("frozen") || path.contains("ice") || path.contains("snowy")) {
+                // Icy bright white foam
+                wakeFoamR = 240; wakeFoamG = 250; wakeFoamB = 255;
+            } else if (path.contains("warm")) {
+                // Warmer tropical foam
+                wakeFoamR = 235; wakeFoamG = 248; wakeFoamB = 250;
+            } else {
+                // Default ocean foam
+                wakeFoamR = 230; wakeFoamG = 245; wakeFoamB = 255;
             }
         }
     }

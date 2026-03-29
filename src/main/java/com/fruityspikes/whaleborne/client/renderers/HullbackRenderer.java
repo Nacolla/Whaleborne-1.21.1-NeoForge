@@ -159,6 +159,9 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
         renderPart(pEntity, poseStack, buffer, partialTicks, packedLight, this.model.getTail(), null, 3, 2.5F, 2.5F);
         renderPart(pEntity, poseStack, buffer, partialTicks, packedLight, this.model.getFluke(), this.armorModel.getFluke(), 4, 0.6F, 4.0F);
 
+        // Water wake overlay — code-generated foam on the water surface
+        HullbackWakeRenderer.renderWake(pEntity, partialTicks, poseStack, buffer);
+
         if(entityRenderDispatcher.shouldRenderHitBoxes())
             renderDebug(pEntity, poseStack, buffer, partialTicks);
     }

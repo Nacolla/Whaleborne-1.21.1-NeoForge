@@ -99,6 +99,7 @@ dependencies {
     implementation "curse.maven:health-bars-1367734:7122333"
     // Puzzles Lib dependency
     implementation "curse.maven:puzzles-lib-495476:5838627"
+    compileOnly files("${rootProject.projectDir}/../Wakes-master/build/libs/wakes-1.21.1-NeoForge-1.0.5.jar")
 }
 
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
