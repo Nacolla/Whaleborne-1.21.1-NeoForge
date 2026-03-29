@@ -27,7 +27,7 @@ public class HullbackPartManager {
 
     // ─── Constants ────────────────────────────────────────────────
     private static final int PART_COUNT = 5;
-    private static final int SEAT_COUNT = 7;
+    private SeatLayout seatLayout = SeatLayout.defaultLayout();
     private static final float SWIM_CYCLE_TICK_MULTIPLIER = 0.1f;
     private static final float HEAD_BODY_SWIM_AMPLITUDE = 2f;
     private static final float TAIL_SWIM_AMPLITUDE = 8f;
@@ -50,22 +50,12 @@ public class HullbackPartManager {
     public final float[] oldPartYRot = new float[PART_COUNT];
     public final float[] oldPartXRot = new float[PART_COUNT];
 
-    // Seats
-    public final Vec3[] seats = new Vec3[SEAT_COUNT];
-    public final Vec3[] oldSeats = new Vec3[SEAT_COUNT];
-    private Vec3 smoothedSeat6 = null;
-    private Vec3 rawSeat6 = null;
-    private static final float SEAT6_SMOOTH_FACTOR = 0.35f;
-
-    private static final Vec3[] SEAT_OFFSETS = {
-            new Vec3(0, 5.5f, 0.0), //sail
-            new Vec3(0, 5.5f, -3.0), //captain
-            new Vec3(1.5, 5.5f, 0.3),
-            new Vec3(-1.5, 5.5f, 0.3),
-            new Vec3(1.5, 5.5f, -1.75),
-            new Vec3(-1.5, 5.5f, -1.75),
-            new Vec3(0, 1.6f, -0.8) //fluke
-    };
+    // Seats (pre-allocated for MAX_SEATS, only activeSeatCount are computed)
+    public final Vec3[] seats = new Vec3[SeatLayout.MAX_SEATS];
+    public final Vec3[] oldSeats = new Vec3[SeatLayout.MAX_SEATS];
+    private Vec3 smoothedFlukeSeat = null;
+    private Vec3 rawFlukeSeat = null;
+    private static final float FLUKE_SEAT_SMOOTH_FACTOR = 0.35f;
 
     private static final float[] PART_DRAG_FACTORS = {1f, 0.9f, 0.2f, 0.1f, 0.09f};
     private static final Vec3[] BASE_OFFSETS = {
@@ -206,58 +196,52 @@ public class HullbackPartManager {
         calculateSeats();
     }
     
-    // ─── Seat-to-part mapping ──────────────────────────────────
-    // Each entry: [partIndex for position, partIndex for rotation]
-    private static final int[][] SEAT_PART_MAP = {
-            {0, 1}, // seat 0 (sail) — position from nose[0], rotation from head[1]
-            {0, 1}, // seat 1 (captain)
-            {2, 2}, // seat 2 — body
-            {2, 2}, // seat 3 — body
-            {2, 2}, // seat 4 — body
-            {2, 2}, // seat 5 — body
-            {4, 4}, // seat 6 (fluke)
-    };
+    // ─── Seat layout (dynamic, loaded from SeatLayout) ─────────
+
+    public SeatLayout getSeatLayout() { return seatLayout; }
+    public void setSeatLayout(SeatLayout layout) { this.seatLayout = layout; }
+    public int getFlukeSeatIndex() { return seatLayout.getFlukeSeatIndex(); }
+    public Vec3 getRawFlukeSeat() { return rawFlukeSeat; }
 
     public void calculateSeats() {
         if (partPosition == null || partYRot == null || partXRot == null || partPosition[0] == null) return;
 
-        // Current seats
-        for (int i = 0; i < SEAT_COUNT - 1; i++) {
-            int posIdx = SEAT_PART_MAP[i][0];
-            int rotIdx = SEAT_PART_MAP[i][1];
-            seats[i] = computeSeat(partPosition[posIdx], partXRot[rotIdx], partYRot[rotIdx], i);
+        int activeSeatCount = seatLayout.getActiveSeatCount();
+        int flukeSeatIdx = seatLayout.getFlukeSeatIndex();
+
+        // Current seats — all except fluke (handled separately for smoothing)
+        for (int i = 0; i < activeSeatCount; i++) {
+            if (i == flukeSeatIdx) continue; // fluke handled below
+            SeatLayout.SeatDef def = seatLayout.getSeatDef(i);
+            seats[i] = computeSeat(partPosition[def.posPartIndex()], partXRot[def.rotPartIndex()], partYRot[def.rotPartIndex()], def.offset());
         }
 
-        // Seat 6 (fluke) — raw position stored for widgets, smoothed for players/mobs
-        rawSeat6 = computeSeat(partPosition[4], partXRot[4], partYRot[4], 6);
-        if (smoothedSeat6 == null) {
-            smoothedSeat6 = rawSeat6;
-        } else {
-            smoothedSeat6 = new Vec3(
-                    Mth.lerp(SEAT6_SMOOTH_FACTOR, smoothedSeat6.x, rawSeat6.x),
-                    Mth.lerp(SEAT6_SMOOTH_FACTOR, smoothedSeat6.y, rawSeat6.y),
-                    Mth.lerp(SEAT6_SMOOTH_FACTOR, smoothedSeat6.z, rawSeat6.z)
-            );
+        // Fluke seat — raw position stored for widgets, smoothed for players/mobs
+        if (flukeSeatIdx >= 0 && flukeSeatIdx < activeSeatCount) {
+            SeatLayout.SeatDef flukeDef = seatLayout.getSeatDef(flukeSeatIdx);
+            rawFlukeSeat = computeSeat(partPosition[flukeDef.posPartIndex()], partXRot[flukeDef.rotPartIndex()], partYRot[flukeDef.rotPartIndex()], flukeDef.offset());
+            if (smoothedFlukeSeat == null) {
+                smoothedFlukeSeat = rawFlukeSeat;
+            } else {
+                smoothedFlukeSeat = new Vec3(
+                        Mth.lerp(FLUKE_SEAT_SMOOTH_FACTOR, smoothedFlukeSeat.x, rawFlukeSeat.x),
+                        Mth.lerp(FLUKE_SEAT_SMOOTH_FACTOR, smoothedFlukeSeat.y, rawFlukeSeat.y),
+                        Mth.lerp(FLUKE_SEAT_SMOOTH_FACTOR, smoothedFlukeSeat.z, rawFlukeSeat.z)
+                );
+            }
+            seats[flukeSeatIdx] = smoothedFlukeSeat;
         }
-        seats[6] = smoothedSeat6;
 
-        // Old seats (for interpolation)
-        for (int i = 0; i < SEAT_COUNT - 1; i++) {
-            int posIdx = SEAT_PART_MAP[i][0];
-            int rotIdx = SEAT_PART_MAP[i][1];
-            oldSeats[i] = computeSeat(oldPartPosition[posIdx], oldPartXRot[rotIdx], oldPartYRot[rotIdx], i);
+        // Old seats (for interpolation) — no smoothing needed for old positions
+        for (int i = 0; i < activeSeatCount; i++) {
+            SeatLayout.SeatDef def = seatLayout.getSeatDef(i);
+            oldSeats[i] = computeSeat(oldPartPosition[def.posPartIndex()], oldPartXRot[def.rotPartIndex()], oldPartYRot[def.rotPartIndex()], def.offset());
         }
-        oldSeats[6] = computeSeat(oldPartPosition[4], oldPartXRot[4], oldPartYRot[4], 6);
     }
 
-    /** Returns the raw (unsmoothed) seat 6 position for rigid widget attachment. */
-    public Vec3 getRawSeat6() {
-        return rawSeat6;
-    }
-
-    /** Computes a seat world position from a part position, rotation, and seat offset index. */
-    private Vec3 computeSeat(Vec3 pos, float xRot, float yRot, int seatIndex) {
-        return pos.add(SEAT_OFFSETS[seatIndex].xRot(xRot * Mth.DEG_TO_RAD).yRot(-yRot * Mth.DEG_TO_RAD));
+    /** Computes a seat world position from a part position, rotation, and offset vector. */
+    private Vec3 computeSeat(Vec3 pos, float xRot, float yRot, Vec3 offset) {
+        return pos.add(offset.xRot(xRot * Mth.DEG_TO_RAD).yRot(-yRot * Mth.DEG_TO_RAD));
     }
     
     private float calculateYaw(Vec3 from, Vec3 to) {
@@ -332,9 +316,7 @@ public class HullbackPartManager {
                 double gravity = entity.isNoGravity() ? 0 : 0.08D;
                 if (entity instanceof net.minecraft.world.entity.LivingEntity living) {
                     net.minecraft.world.entity.ai.attributes.AttributeInstance attribute = living.getAttribute(net.minecraft.world.entity.ai.attributes.Attributes.GRAVITY);
-                    if (attribute != null) {
-                        gravity = attribute.getValue();
-                    }
+                    gravity = attribute.getValue();
                 }
                 
                 Vec3 smoothedOffset = offset.scale(movementFactor);

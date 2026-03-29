@@ -8,6 +8,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.block.SoundType;
+import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
 import java.util.function.Supplier;
@@ -53,8 +54,5 @@ public class WBSoundRegistry {
             "entity.hullback.mad",
             () -> SoundEvent.createVariableRangeEvent(ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "entity.hullback.mad"))
     );
-    public static final Supplier<SoundEvent> SAIL_BLOW = SOUND_EVENTS.register(
-            "entity.sail.blow",
-            () -> SoundEvent.createVariableRangeEvent(ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "entity.sail.blow"))
-    );
+    public static final DeferredHolder<SoundEvent, SoundEvent> SAIL_BLOW = SOUND_EVENTS.register("entity.sail.blow", () -> SoundEvent.createVariableRangeEvent(ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "entity.sail.blow")));
 }

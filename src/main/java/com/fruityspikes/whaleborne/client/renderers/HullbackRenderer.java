@@ -14,6 +14,7 @@ import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.model.geom.builders.LayerDefinition;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
@@ -38,7 +39,9 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<HullbackEntity, HullbackModel<HullbackEntity>> {
@@ -56,6 +59,9 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
     public static final ResourceLocation ARMOR_PROGRESS = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/hullback_armor_progress.png");
     private final HullbackArmorModel<HullbackEntity> armorModel;
 
+    // Cache of per-material armor models (loaded on first use during rendering)
+    private final Map<String, HullbackArmorModel<HullbackEntity>> materialArmorModels = new HashMap<>();
+
     public HullbackRenderer(EntityRendererProvider.Context ctx) {
         super(ctx, new HullbackModel<>(ctx.bakeLayer(WBEntityModelLayers.HULLBACK)), 5F);
         this.armorModel = new HullbackArmorModel<>(ctx.bakeLayer(WBEntityModelLayers.HULLBACK_ARMOR));
@@ -64,10 +70,8 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
     public ResourceLocation getArmor(HullbackEntity pEntity) {
         if (pEntity.getArmorProgress() > 0) {
             ItemStack armor = pEntity.getArmor();
-            if (armor.is(WBTagRegistry.HULLBACK_EQUIPPABLE)) {
-                ResourceLocation armor_tex = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "textures/entity/armor/hullback_" + net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(armor.getItem()).getPath() + "_armor.png");
-                Optional<Resource> tex = Minecraft.getInstance().getResourceManager().getResource(armor_tex);
-                return tex.isPresent() ? armor_tex : ARMOR_TEXTURE;
+            if (!armor.isEmpty()) {
+                return ArmorTextureResolver.resolve(armor.getItem());
             }
         }
         return ARMOR_TEXTURE;
@@ -164,8 +168,11 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
     }
 
     private void renderDebug(HullbackEntity pEntity, PoseStack poseStack, MultiBufferSource buffer, float partialTicks) {
-        if(pEntity.hullbackSeatManager.seats[0]!=null){
-            for ( Vec3 seat : pEntity.hullbackSeatManager.seats ) {
+        int activeSeatCount = pEntity.hullbackSeatManager.getActiveSeatCount();
+        if(activeSeatCount > 0 && pEntity.partManager.seats[0] != null){
+            for (int i = 0; i < activeSeatCount; i++) {
+                Vec3 seat = pEntity.partManager.seats[i];
+                if (seat == null) continue;
                 poseStack.pushPose();
 
                 poseStack.translate(
@@ -295,8 +302,64 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
         }
     }
 
+    // Get armor model for a specific material, with fallback to default.
+    // Uses HullConfigManager.armorModel to determine which JSON model directory to load from.
+    private HullbackArmorModel<HullbackEntity> getArmorModelForMaterial(String material) {
+        if (material == null) return armorModel;
+
+        // Convert path-safe material name back to ResourceLocation for config lookup
+        // material is either "oak_planks" (vanilla) or "modid/item_path" (modded)
+        ResourceLocation itemId;
+        if (material.contains("/")) {
+            String[] parts = material.split("/", 2);
+            itemId = ResourceLocation.fromNamespaceAndPath(parts[0], parts[1]);
+        } else {
+            itemId = ResourceLocation.fromNamespaceAndPath("minecraft", material);
+        }
+        Item armorItem = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(itemId);
+        String modelName = com.fruityspikes.whaleborne.server.data.HullConfigManager.getArmorModel(armorItem);
+
+        String lookupKey = modelName.equals("default") ? material : modelName;
+
+        return materialArmorModels.computeIfAbsent(lookupKey, mat -> {
+            LayerDefinition layerDef = ArmorModelLoader.loadMergedArmor(mat);
+            if (layerDef != null) {
+                return new HullbackArmorModel<>(layerDef.bakeRoot());
+            }
+            return null; // Will fall back to default armorModel
+        });
+    }
+
+    // Extract material name from armor ItemStack (path only, no namespace colon)
+    private String getMaterialName(HullbackEntity entity) {
+        if (entity.getArmorProgress() <= 0) return null;
+        ItemStack armor = entity.getArmor();
+        if (armor.isEmpty()) return null;
+        ResourceLocation itemId = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(armor.getItem());
+        // Use namespace/path format for modded items, just path for vanilla
+        if (itemId.getNamespace().equals("minecraft")) {
+            return itemId.getPath();
+        }
+        return itemId.getNamespace() + "/" + itemId.getPath();
+    }
+
     private void renderArmor(HullbackEntity pEntity, PoseStack poseStack, MultiBufferSource buffer, int packedLight, boolean flag, ModelPart armorPart, int index) {
         if (armorPart != null && pEntity.getArmorProgress() > 0) {
+            // Try per-material model override
+            String material = getMaterialName(pEntity);
+            HullbackArmorModel<HullbackEntity> materialModel = getArmorModelForMaterial(material);
+            ModelPart effectivePart = armorPart;
+            if (materialModel != null && materialModel != armorModel) {
+                // Map index to part name
+                switch (index) {
+                    case 0: effectivePart = materialModel.getHead(); break;
+                    case 2: effectivePart = materialModel.getBody(); break;
+                    case 4: effectivePart = materialModel.getFluke(); break;
+                }
+                // Only use if the part has actual geometry
+                if (effectivePart.isEmpty()) effectivePart = armorPart;
+            }
+
             poseStack.pushPose();
             poseStack.translate(0, -1.5f, 0);
             poseStack.scale(1.005f, 1.005f, 1.005f);
@@ -308,21 +371,21 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
 
             if (Config.armorProgress) {
                 if (progress == 0) {
-                    armorPart.render(
+                    effectivePart.render(
                             poseStack,
                             buffer.getBuffer(RenderType.entityCutout(getArmor(pEntity))),
                             packedLight,
                             OverlayTexture.pack(0.0F, flag)
                     );
                 } else if (!com.fruityspikes.whaleborne.client.compat.ShaderCompatLib.isShaderModLoaded()) {
-                    armorPart.render(
+                    effectivePart.render(
                             poseStack,
                             buffer.getBuffer(RenderType.dragonExplosionAlpha(ARMOR_PROGRESS)),
                             packedLight,
                             OverlayTexture.pack(0.0F, flag),
                             (int)(progress * 255) << 24 | 0xFFFFFF
                     );
-                    armorPart.render(
+                    effectivePart.render(
                             poseStack,
                             buffer.getBuffer(RenderType.entityDecal(getArmor(pEntity))),
                             packedLight,
@@ -332,7 +395,7 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
                     ResourceLocation damagedTexture = HullbackArmorTextureManager.getOrCreateDamagedTexture(
                             pEntity, getArmor(pEntity), pEntity.getArmor().getItem(), progress
                     );
-                    armorPart.render(
+                    effectivePart.render(
                             poseStack,
                             buffer.getBuffer(RenderType.entityCutoutNoCull(damagedTexture)),
                             packedLight,
@@ -340,14 +403,14 @@ public class HullbackRenderer<T extends HullbackEntity> extends MobRenderer<Hull
                     );
                 }
             } else {
-                armorPart.render(
+                effectivePart.render(
                         poseStack,
                         buffer.getBuffer(RenderType.entityCutoutNoCull(getArmor(pEntity))),
                         packedLight,
                         OverlayTexture.pack(0.0F, flag),
                         -1
                 );
-                armorPart.render(
+                effectivePart.render(
                         poseStack,
                         buffer.getBuffer(RenderType.entityTranslucent(ARMOR_PROGRESS)),
                         packedLight,

@@ -80,7 +80,7 @@ public class HullbackInteractionManager {
      */
     public InteractionResult interactRide(Player player, InteractionHand hand, int seatIndex, @Nullable EntityType<?> entityType) {
         // Validate seat index
-        if (seatIndex < 0 || seatIndex >= 7) {
+        if (seatIndex < 0 || seatIndex >= hullback.hullbackSeatManager.getActiveSeatCount()) {
             return InteractionResult.FAIL;
         }
 
@@ -96,8 +96,8 @@ public class HullbackInteractionManager {
             return InteractionResult.PASS;
         }
 
-        // Check if seat is occupied
-        Optional<UUID> currentSeatOccupant = hullback.getEntityData().get(hullback.getSeatAccessor(seatIndex));
+        // Check if seat is occupied (uses SeatManager which handles both base and overflow seats)
+        Optional<UUID> currentSeatOccupant = hullback.hullbackSeatManager.getSeatData(seatIndex);
         if (currentSeatOccupant.isPresent()) {
             if (currentSeatOccupant.get().equals(player.getUUID())) {
                 return InteractionResult.PASS;
@@ -127,7 +127,11 @@ public class HullbackInteractionManager {
             return InteractionResult.FAIL;
         }
 
-        Vec3 seatPos = hullback.partManager.seats[seatIndex];
+        Vec3 seatPos = seatIndex < hullback.partManager.seats.length ? hullback.partManager.seats[seatIndex] : null;
+        if (seatPos == null) {
+            entity.discard();
+            return InteractionResult.FAIL;
+        }
         entity.moveTo(seatPos.x, seatPos.y + 1, seatPos.z, hullback.getYRot(), 0);
         hullback.level().addFreshEntity(entity);
 
@@ -150,8 +154,8 @@ public class HullbackInteractionManager {
      */
     private InteractionResult mountPlayer(Player player, int seatIndex) {
         // Dismount player from any other seat first
-        for (int i = 0; i < 7; i++) {
-            Optional<UUID> occupant = hullback.getEntityData().get(hullback.getSeatAccessor(i));
+        for (int i = 0; i < hullback.hullbackSeatManager.getActiveSeatCount(); i++) {
+            Optional<UUID> occupant = hullback.hullbackSeatManager.getSeatData(i);
             if (occupant.isPresent() && occupant.get().equals(player.getUUID())) {
                 player.stopRiding();
             }
@@ -300,7 +304,7 @@ public class HullbackInteractionManager {
 
         if (heldItem.getItem() instanceof SaddleItem) {
             return handleSaddleEquip(player, hand, heldItem);
-        } else if (heldItem.is(WBTagRegistry.HULLBACK_EQUIPPABLE)) {
+        } else if (WBTagRegistry.isHullMaterial(heldItem)) {
             return handleArmorEquip(player, hand, heldItem);
         }
         return InteractionResult.PASS;
@@ -332,8 +336,9 @@ public class HullbackInteractionManager {
         }
 
         ItemStack currentArmor = hullback.getInventory().getItem(HullbackEntity.INV_SLOT_ARMOR);
+        int maxPlanks = com.fruityspikes.whaleborne.server.data.HullConfigManager.getMaxPlanks(heldItem.getItem());
 
-        if (currentArmor.getCount() >= currentArmor.getMaxStackSize()) {
+        if (!currentArmor.isEmpty() && currentArmor.getCount() >= maxPlanks) {
             rejectWithMad();
             return InteractionResult.PASS;
         }
@@ -343,7 +348,7 @@ public class HullbackInteractionManager {
             hullback.updateContainerEquipment();
         } else if (heldItem.getItem() == currentArmor.getItem()) {
             if (player.isCreative()) {
-                currentArmor.setCount(64);
+                currentArmor.setCount(maxPlanks);
             } else {
                 currentArmor.grow(1);
             }

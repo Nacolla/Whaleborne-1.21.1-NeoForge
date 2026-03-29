@@ -94,6 +94,13 @@ public class HullbackEquipmentManager {
         if (hullback.tickCount > 20 && previousArmor != currentArmor) {
             hullback.playSound(SoundEvents.HORSE_ARMOR, 0.5F, 1.0F);
         }
+
+        // Apply hull config (speed modifier + seat layout) based on armor material
+        if (!currentArmor.isEmpty()) {
+            hullback.applyHullConfig(currentArmor.getItem());
+        } else {
+            hullback.removeHullConfig();
+        }
     }
 
     /**

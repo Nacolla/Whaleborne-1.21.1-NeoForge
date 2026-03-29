@@ -104,6 +104,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
     // ─── Static fields ───────────────────────────────────────────
     private static final ResourceLocation SAIL_SPEED_MODIFIER_ID = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "sail_speed_modifier");
+    private static final ResourceLocation HULL_SWIM_SPEED_MODIFIER_ID = ResourceLocation.fromNamespaceAndPath(Whaleborne.MODID, "hull_swim_speed_modifier");
 
     // ─── Synched Entity Data ─────────────────────────────────────
     public static final EntityDataAccessor<ItemStack> DATA_CROWN_ID = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.ITEM_STACK);
@@ -116,6 +117,12 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_4 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_5 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Optional<UUID>> DATA_SEAT_6 = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.OPTIONAL_UUID);
+    // Overflow seats (7+) stored as a single CompoundTag: {"7":"uuid-str", "9":"uuid-str", ...}
+    // Only occupied seats have entries → zero overhead for empty seats, unlimited capacity
+    public static final EntityDataAccessor<net.minecraft.nbt.CompoundTag> DATA_OVERFLOW_SEATS =
+            SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.COMPOUND_TAG);
+    /** Hard cap on total seats to prevent abuse. Configurable per-material via HullConfig. */
+    public static final int MAX_TOTAL_SEATS = 16;
     public static final EntityDataAccessor<Boolean> DATA_VECTOR_CONTROL = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Integer> DATA_STATIONARY_TICKS = SynchedEntityData.defineId(HullbackEntity.class, EntityDataSerializers.INT);
 
@@ -445,6 +452,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         builder.define(DATA_SEAT_4, Optional.empty());
         builder.define(DATA_SEAT_5, Optional.empty());
         builder.define(DATA_SEAT_6, Optional.empty());
+        builder.define(DATA_OVERFLOW_SEATS, new net.minecraft.nbt.CompoundTag());
 
         builder.define(DATA_CROWN_ID, ItemStack.EMPTY);
         builder.define(DATA_ARMOR, ItemStack.EMPTY);
@@ -481,8 +489,8 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         compound.putBoolean("HasMobiusSpawned", hasMobiusSpawned);
         compound.putInt("TicksSinceSpawn", ticksSinceSpawn);
 
-        for (int i = 0; i < 7; i++) {
-            Optional<UUID> occupant = this.entityData.get(getSeatAccessor(i));
+        for (int i = 0; i < hullbackSeatManager.getActiveSeatCount(); i++) {
+            Optional<UUID> occupant = hullbackSeatManager.getSeatData(i);
             String seatKey = "Seat_" + i;
 
             if (occupant.isPresent()) {
@@ -508,18 +516,24 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         hasMobiusSpawned = compound.getBoolean("HasMobiusSpawned");
         ticksSinceSpawn = compound.getInt("TicksSinceSpawn");
 
-        for (int i = 0; i < 7; i++) {
+        for (int i = 0; i < hullbackSeatManager.getSeatCount(); i++) {
             String seatKey = "Seat_" + i;
             if (compound.hasUUID(seatKey)) {
                 UUID uuid = compound.getUUID(seatKey);
-                this.entityData.set(getSeatAccessor(i), Optional.of(uuid));
+                hullbackSeatManager.setSeatData(i, Optional.of(uuid));
             } else {
-                this.entityData.set(getSeatAccessor(i), Optional.empty());
+                hullbackSeatManager.setSeatData(i, Optional.empty());
             }
         }
 
         this.hullbackDirt.readAdditionalSaveData(compound);
         this.updateContainerEquipment();
+
+        // Apply hull config (seat layout + speed modifier) on world load
+        ItemStack armor = this.inventory.getItem(INV_SLOT_ARMOR);
+        if (!armor.isEmpty()) {
+            this.applyHullConfig(armor.getItem());
+        }
     }
 
     public EntityDataAccessor<Optional<UUID>> getSeatAccessor(int seatIndex) {
@@ -527,8 +541,76 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     }
 
     public float getArmorProgress() {
-        return (float) this.entityData.get(DATA_ARMOR).getCount() / 64f;
+        ItemStack armor = this.entityData.get(DATA_ARMOR);
+        if (armor.isEmpty()) return 0f;
+        int maxPlanks = com.fruityspikes.whaleborne.server.data.HullConfigManager.getMaxPlanks(armor.getItem());
+        return (float) armor.getCount() / maxPlanks;
     }
+
+    /** Get the max planks for the current armor material, or 64 if no armor */
+    public int getMaxPlanks() {
+        ItemStack armor = this.entityData.get(DATA_ARMOR);
+        if (armor.isEmpty()) return com.fruityspikes.whaleborne.server.data.HullConfig.DEFAULT_PLANKS;
+        return com.fruityspikes.whaleborne.server.data.HullConfigManager.getMaxPlanks(armor.getItem());
+    }
+    /**
+     * Apply hull attribute modifiers and seat layout based on armor material.
+     * Called from EquipmentManager when armor changes.
+     */
+    public void applyHullConfig(Item armorItem) {
+        if (this.level().isClientSide) return;
+        com.fruityspikes.whaleborne.server.data.HullConfig config =
+                com.fruityspikes.whaleborne.server.data.HullConfigManager.getConfig(armorItem);
+        Whaleborne.LOGGER.info("applyHullConfig for {}: speed={}, blockChance={}",
+                net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(armorItem),
+                config.swimSpeedBonus(), config.getEffectiveBlockChance());
+
+        // Swim speed modifier
+        AttributeInstance swimInst = this.getAttribute(getSwimSpeed());
+        if (swimInst != null) {
+            AttributeModifier old = swimInst.getModifier(HULL_SWIM_SPEED_MODIFIER_ID);
+            if (old != null) swimInst.removeModifier(HULL_SWIM_SPEED_MODIFIER_ID);
+            if (config.swimSpeedBonus() != 0.0f) {
+                swimInst.addPermanentModifier(new AttributeModifier(
+                        HULL_SWIM_SPEED_MODIFIER_ID, config.swimSpeedBonus(),
+                        AttributeModifier.Operation.ADD_VALUE));
+            }
+        }
+
+        // Seat layout
+        com.fruityspikes.whaleborne.server.entities.components.hullback.SeatLayout layout =
+                com.fruityspikes.whaleborne.server.data.HullConfigManager.getSeatLayout(armorItem);
+        Whaleborne.LOGGER.info("applyHullConfig seat layout: {} active seats (fluke={})",
+                layout.getActiveSeatCount(), layout.getFlukeSeatIndex());
+        partManager.setSeatLayout(layout);
+        hullbackSeatManager.setSeatLayout(layout);
+
+        // Sync layout to all tracking clients
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayersTrackingEntity(this,
+                new com.fruityspikes.whaleborne.network.SeatLayoutPayload(
+                        this.getId(), layout.getAllSeatDefs(), layout.getFlukeSeatIndex()));
+    }
+
+    /** Remove hull attribute modifiers. Called when armor is removed. */
+    public void removeHullConfig() {
+        if (this.level().isClientSide) return;
+        AttributeInstance swimInst = this.getAttribute(getSwimSpeed());
+        if (swimInst != null) {
+            AttributeModifier old = swimInst.getModifier(HULL_SWIM_SPEED_MODIFIER_ID);
+            if (old != null) swimInst.removeModifier(HULL_SWIM_SPEED_MODIFIER_ID);
+        }
+        // Reset to default layout
+        com.fruityspikes.whaleborne.server.entities.components.hullback.SeatLayout defaultLayout =
+                com.fruityspikes.whaleborne.server.entities.components.hullback.SeatLayout.defaultLayout();
+        partManager.setSeatLayout(defaultLayout);
+        hullbackSeatManager.setSeatLayout(defaultLayout);
+
+        // Sync default layout to clients
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayersTrackingEntity(this,
+                new com.fruityspikes.whaleborne.network.SeatLayoutPayload(
+                        this.getId(), defaultLayout.getAllSeatDefs(), defaultLayout.getFlukeSeatIndex()));
+    }
+
     public float getLeftEyeYaw() { return leftEyeYaw; }
     public float getRightEyeYaw() { return rightEyeYaw; }
     public float getEyePitch() { return eyePitch; }
@@ -698,9 +780,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     }
 
     public InteractionResult mobInteract(Player player, InteractionHand hand) {
-        InteractionResult result = interactionManager.mobInteract(player, hand);
-        if (result.consumesAction()) return result;
-        return super.mobInteract(player, hand);
+        return interactionManager.mobInteract(player, hand);
     }
 
     public InteractionResult interactDebug(Player player, InteractionHand hand){
@@ -922,6 +1002,18 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
 
         if (this.tickCount % SEAT_VALIDATION_INTERVAL_TICKS == 0) {
             validateAssignments();
+        }
+
+        // Periodically re-apply hull config to catch datapack reloads
+        if (!this.level().isClientSide && this.tickCount % 100 == 50) {
+            ItemStack armor = this.entityData.get(DATA_ARMOR);
+            if (!armor.isEmpty()) {
+                com.fruityspikes.whaleborne.server.entities.components.hullback.SeatLayout expected =
+                        com.fruityspikes.whaleborne.server.data.HullConfigManager.getSeatLayout(armor.getItem());
+                if (expected != partManager.getSeatLayout()) {
+                    applyHullConfig(armor.getItem());
+                }
+            }
         }
 
         if (this.tickCount == DIRT_INITIAL_SYNC_TICK) {
@@ -1263,29 +1355,23 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     }
 
     public Vec3 getPartPos(int i){
-        if (i < 0 || i >= partManager.partPosition.length || partManager.partPosition[i] == null) return this.position();
         return partManager.partPosition[i];
     }
 
     public float getPartYRot(int i){
-        if (i < 0 || i >= partManager.partYRot.length) return this.getYRot();
         return partManager.partYRot[i];
     }
     public float getPartXRot(int i){
-        if (i < 0 || i >= partManager.partXRot.length) return this.getXRot();
         return partManager.partXRot[i];
     }
 
     public Vec3 getOldPartPos(int i){
-        if (i < 0 || i >= partManager.oldPartPosition.length || partManager.oldPartPosition[i] == null) return this.position();
         return partManager.oldPartPosition[i];
     }
     public float getOldPartYRot(int i){
-        if (i < 0 || i >= partManager.oldPartYRot.length) return this.getYRot();
         return partManager.oldPartYRot[i];
     }
     public float getOldPartXRot(int i){
-        if (i < 0 || i >= partManager.oldPartXRot.length) return this.getXRot();
         return partManager.oldPartXRot[i];
     }
 
@@ -1312,7 +1398,7 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     // PASSENGERS
     @Override
     public boolean canAddPassenger(Entity passenger) {
-        return (getPassengers().size() < 7);
+        return (getPassengers().size() < hullbackSeatManager.getActiveSeatCount());
     }
 
     // Improve positionRider to handle uninitialized seats
@@ -1333,8 +1419,8 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         if (seatIndex < partManager.seats.length && partManager.seats[seatIndex] != null) {
             // Use raw (unsmoothed) position for widgets on the fluke so they stay visually attached
             Vec3 seatPos;
-            if (seatIndex == 6 && passenger instanceof WhaleWidgetEntity && partManager.getRawSeat6() != null) {
-                seatPos = partManager.getRawSeat6();
+            if (seatIndex == partManager.getFlukeSeatIndex() && passenger instanceof WhaleWidgetEntity && partManager.getRawFlukeSeat() != null) {
+                seatPos = partManager.getRawFlukeSeat();
             } else {
                 seatPos = partManager.seats[seatIndex];
             }
@@ -1424,10 +1510,10 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
         if(passenger instanceof Player && !this.isBreaching())
             stationaryTicks = STATIONARY_TICKS_DISMOUNT;
         if(passenger.isRemoved())
-            for (int i = 0; i < 7; i++) {
-                Optional<UUID> occupant = this.entityData.get(getSeatAccessor(i));
+            for (int i = 0; i < hullbackSeatManager.getActiveSeatCount(); i++) {
+                Optional<UUID> occupant = hullbackSeatManager.getSeatData(i);
                 if (occupant.isPresent() && occupant.get().equals(passenger.getUUID())) {
-                    this.entityData.set(getSeatAccessor(i), Optional.empty());
+                    hullbackSeatManager.setSeatData(i, Optional.empty());
                 }
             }
         super.removePassenger(passenger);
@@ -1437,10 +1523,10 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     public Vec3 getDismountLocationForPassenger(LivingEntity passenger) {
         int seatIndex = getSeatByEntity(passenger);
         if (seatIndex != -1) {
-            for (int i = 0; i < 7; i++) {
-                Optional<UUID> occupant = this.entityData.get(getSeatAccessor(i));
+            for (int i = 0; i < hullbackSeatManager.getActiveSeatCount(); i++) {
+                Optional<UUID> occupant = hullbackSeatManager.getSeatData(i);
                 if (occupant.isPresent() && occupant.get().equals(passenger.getUUID())) {
-                    this.entityData.set(getSeatAccessor(i), Optional.empty());
+                    hullbackSeatManager.setSeatData(i, Optional.empty());
                 }
             }
 
@@ -1455,8 +1541,8 @@ public class HullbackEntity extends AbstractWhale implements HasCustomInventoryS
     @Nullable
     @Override
     public LivingEntity getControllingPassenger() {
-        for (int i = 0; i < 7; i++) {
-            Optional<UUID> seatOccupant = this.entityData.get(getSeatAccessor(i));
+        for (int i = 0; i < hullbackSeatManager.getActiveSeatCount(); i++) {
+            Optional<UUID> seatOccupant = hullbackSeatManager.getSeatData(i);
             if (seatOccupant.isPresent()) {
                 Entity entity = getEntityByUUID(seatOccupant.get());
 

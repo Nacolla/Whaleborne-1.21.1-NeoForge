@@ -114,10 +114,9 @@ public class HelmEntity extends RideableWhaleWidgetEntity implements PlayerRidea
     }
     @Override
     public void onPlayerJump(int i) {
-        Entity vehicle = this.getVehicle();
-        if (vehicle != null) {
-            vehicle.playSound(WBSoundRegistry.ORGAN.get());
-        }
+        //if (this.getVehicle() instanceof HullbackEntity hullback){
+        this.getVehicle().playSound(WBSoundRegistry.ORGAN.get());
+        //}
     }
 
     @Override
@@ -127,26 +126,23 @@ public class HelmEntity extends RideableWhaleWidgetEntity implements PlayerRidea
 
     @Override
     public void handleStartJump(int i) {
-        Entity vehicle = this.getVehicle();
-        if (vehicle == null) return;
-
-        vehicle.playSound(WBSoundRegistry.ORGAN.get(), 2, 2);
-        vehicle.playSound(WBSoundRegistry.ORGAN.get(), 1.5f, 1.5f);
+        this.getVehicle().playSound(WBSoundRegistry.ORGAN.get(), 2, 2);
+        this.getVehicle().playSound(WBSoundRegistry.ORGAN.get(), 1.5f, 1.5f);
 
         boolean hasAnchorDown = false;
-        if(vehicle instanceof HullbackEntity hullback){
+        if(this.getVehicle()!=null && this.getVehicle() instanceof HullbackEntity hullback){
             hasAnchorDown = hullback.hasAnchorDown();
         }
-        for (Entity passenger : vehicle.getPassengers()) {
+        for (Entity passenger : this.getVehicle().getPassengers()) {
             if (passenger instanceof AnchorEntity anchor) {
                 if (hasAnchorDown) {
                     if (anchor.isDown()) {
-                        vehicle.playSound(SoundEvents.CHAIN_PLACE, 1, 0);
+                        this.getVehicle().playSound(SoundEvents.CHAIN_PLACE, 1, 0);
                         anchor.toggleDown();
                     }
                 } else {
                     if (!anchor.isDown() && anchor.isClosed()) {
-                        vehicle.playSound(SoundEvents.CHAIN_BREAK, 1, 2);
+                        this.getVehicle().playSound(SoundEvents.CHAIN_BREAK, 1, 2);
                         anchor.toggleDown();
                     }
                 }
